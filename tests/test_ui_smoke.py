@@ -143,6 +143,46 @@ def test_text_compare_view_renders(app):
     assert "⋯" in view._left_pane.toPlainText() or view._left_pane.toPlainText()
 
 
+def test_diff_result_is_delivered_on_the_ui_thread(app, tmp_path):
+    """Worker signals must reach the view as queued slot calls on the GUI
+    thread. Regression: connecting them to lambdas ran set_data() on the
+    worker thread, crashing the app intermittently on local↔SFTP diffs."""
+    from PySide6.QtCore import QEventLoop, QThread, QTimer
+
+    from shankompare.ui.worker import TextDiffWorker, start_worker
+
+    class ThreadRecordingView(TextCompareView):
+        delivery_thread = None
+
+        def on_diff_loaded(self, data):
+            self.delivery_thread = QThread.currentThread()
+            super().on_diff_loaded(data)
+
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    left.mkdir()
+    right.mkdir()
+    (left / "a.txt").write_text("one")
+    (right / "a.txt").write_text("two")
+
+    view = ThreadRecordingView("l", "r")
+    worker = TextDiffWorker(LocalSide(str(left)), LocalSide(str(right)), "a.txt")
+    worker.finished.connect(view.on_diff_loaded)
+    worker.failed.connect(view.show_error)
+    thread = start_worker(worker, view, [worker.finished, worker.failed])
+
+    loop = QEventLoop()
+    thread.finished.connect(loop.quit)
+    QTimer.singleShot(5000, loop.quit)
+    if not thread.isFinished():
+        loop.exec()
+    thread.wait(5000)
+    app.processEvents()  # flush the queued delivery
+
+    assert view.delivery_thread is app.thread()
+    assert view._left_data is not None and view._left_data.text == "one"
+
+
 def test_text_compare_shows_current_line_marker(app):
     view = TextCompareView("l", "r")
     view.set_data(decode_bytes(b"same\ntext"), decode_bytes(b"same\ntext"))

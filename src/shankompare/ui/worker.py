@@ -188,20 +188,21 @@ class TextDiffWorker(QObject):
 class TextSaveWorker(QObject):
     """Writes one edited file back to its side."""
 
-    finished = Signal()
+    finished = Signal(str)  # side
     failed = Signal(str)
 
-    def __init__(self, spec: SideSpec, rel_path: str, data: bytes):
+    def __init__(self, spec: SideSpec, rel_path: str, data: bytes, side: str):
         super().__init__()
         self._spec = spec
         self._rel_path = rel_path
         self._data = data
+        self._side = side
 
     def run(self) -> None:
         try:
             with open_side(self._spec) as fs, fs.open_write(self._rel_path) as f:
                 f.write(self._data)
-            self.finished.emit()
+            self.finished.emit(self._side)
         except VfsError as exc:
             self.failed.emit(str(exc))
         except Exception:

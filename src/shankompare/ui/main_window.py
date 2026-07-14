@@ -170,6 +170,7 @@ class MainWindow(QMainWindow):
         self._ops_thread: QThread | None = None
         self._ops_worker: FileOpsWorker | None = None
         self._ops_pending: list[FileOp] = []
+        self._pending_relaunch: tuple[SideSpec, SideSpec] | None = None
 
         self._left_picker = SidePicker("Left side")
         self._right_picker = SidePicker("Right side")
@@ -451,9 +452,15 @@ class MainWindow(QMainWindow):
         """Restart once the previous worker thread has fully wound down."""
         thread = self._compare_thread
         if thread is not None and thread.isRunning():
-            thread.finished.connect(lambda: self._launch(left, right))
+            self._pending_relaunch = (left, right)
+            thread.finished.connect(self._start_pending_relaunch)
         else:
             self._launch(left, right)
+
+    def _start_pending_relaunch(self) -> None:
+        pending, self._pending_relaunch = self._pending_relaunch, None
+        if pending is not None:
+            self._launch(*pending)
 
     def _on_compare_thread_done(self) -> None:
         self._compare_thread = None
@@ -521,34 +528,50 @@ class MainWindow(QMainWindow):
 
     # --- text compare tabs ---------------------------------------------------------
 
+    # NOTE: signals emitted from worker threads must connect to bound methods
+    # of QObjects (queued to the receiver's thread), never to lambdas — a
+    # lambda has no receiver, so Qt runs it on the worker thread, and touching
+    # widgets from there crashes intermittently.
+
     def _open_text_diff(self, node: NodeResult, rel_path: str) -> None:
         if self._sides is None:
             return
-        left, right = self._sides
         view = TextCompareView(f"Left: {rel_path}", f"Right: {rel_path}")
-        view.save_requested.connect(
+        view.save_requested.connect(  # emitted on the UI thread (button click)
             lambda side, data, v=view, rel=rel_path: self._save_text(v, side, rel, data)
+        )
+        view.refresh_requested.connect(  # emitted on the UI thread
+            lambda v=view, rel=rel_path: self._load_text_diff(v, rel)
         )
         index = self._tabs.addTab(view, node.name)
         self._tabs.setCurrentIndex(index)
+        self._load_text_diff(view, rel_path)
 
+    def _load_text_diff(self, view: TextCompareView, rel_path: str) -> None:
+        if self._sides is None:
+            view.show_error("No comparison is active.")
+            return
+        left, right = self._sides
         worker = TextDiffWorker(left, right, rel_path)
-        worker.finished.connect(lambda data, v=view: v.set_data(data.left, data.right))
-        worker.failed.connect(lambda message, v=view: v.show_error(message))
+        worker.finished.connect(view.on_diff_loaded)
+        worker.failed.connect(view.show_error)
         self._track_thread(start_worker(worker, self, [worker.finished, worker.failed]))
 
     def _save_text(self, view: TextCompareView, side: str, rel_path: str, data: bytes) -> None:
         if self._sides is None:
             return
         spec = self._sides[0] if side == "left" else self._sides[1]
-        worker = TextSaveWorker(spec, rel_path, data)
-        worker.finished.connect(lambda v=view, s=side: v.mark_saved(s))
-        worker.failed.connect(lambda message, v=view: v.show_error(f"Save failed: {message}"))
+        worker = TextSaveWorker(spec, rel_path, data, side)
+        worker.finished.connect(view.mark_saved)
+        worker.failed.connect(view.on_save_failed)
         self._track_thread(start_worker(worker, self, [worker.finished, worker.failed]))
 
     def _track_thread(self, thread: QThread) -> None:
         self._text_threads.append(thread)
-        thread.finished.connect(lambda t=thread: self._text_threads.remove(t))
+        thread.finished.connect(self._prune_text_threads)
+
+    def _prune_text_threads(self) -> None:
+        self._text_threads = [t for t in self._text_threads if t.isRunning()]
 
     def _close_tab(self, index: int) -> None:
         if index == 0:

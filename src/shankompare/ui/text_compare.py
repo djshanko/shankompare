@@ -86,9 +86,12 @@ class _Pane(QPlainTextEdit):
 
 class TextCompareView(QWidget):
     save_requested = Signal(str, bytes)  # side ("left"/"right"), encoded content
+    refresh_requested = Signal()
 
     def __init__(self, left_title: str, right_title: str, parent: QWidget | None = None):
         super().__init__(parent)
+        self._left_title = left_title
+        self._right_title = right_title
         self._left_data: DecodedText | None = None
         self._right_data: DecodedText | None = None
         self._blocks: list = []
@@ -116,6 +119,8 @@ class TextCompareView(QWidget):
         self._save_right = QPushButton("Save right")
         self._save_left.setEnabled(False)
         self._save_right.setEnabled(False)
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.setToolTip("Reload both files from disk / server")
         prev_btn = QPushButton("◀ Prev")
         next_btn = QPushButton("Next ▶")
 
@@ -127,6 +132,7 @@ class TextCompareView(QWidget):
         copy_rtl_btn.clicked.connect(lambda: self._copy_section("rtl"))
         self._save_left.clicked.connect(lambda: self._save("left"))
         self._save_right.clicked.connect(lambda: self._save("right"))
+        refresh_btn.clicked.connect(self._on_refresh_clicked)
         prev_btn.clicked.connect(lambda: self._goto_diff(-1))
         next_btn.clicked.connect(lambda: self._goto_diff(+1))
 
@@ -153,6 +159,7 @@ class TextCompareView(QWidget):
         controls.addWidget(copy_ltr_btn)
         controls.addWidget(self._save_left)
         controls.addWidget(self._save_right)
+        controls.addWidget(refresh_btn)
         controls.addStretch(1)
         controls.addWidget(self._status)
         controls.addStretch(1)
@@ -174,12 +181,30 @@ class TextCompareView(QWidget):
     def set_data(self, left: DecodedText, right: DecodedText) -> None:
         self._left_data = left
         self._right_data = right
-        self._left_info.setText(f"{self._left_info.text()}   [{left.encoding} · {left.eol}]")
-        self._right_info.setText(f"{self._right_info.text()}   [{right.encoding} · {right.eol}]")
+        self._left_info.setText(f"{self._left_title}   [{left.encoding} · {left.eol}]")
+        self._right_info.setText(f"{self._right_title}   [{right.encoding} · {right.eol}]")
+        self._set_dirty("left", False)
+        self._set_dirty("right", False)
         self._recompute()
+
+    def on_diff_loaded(self, data) -> None:
+        """Slot for TextDiffWorker.finished — a bound method of this QObject,
+        so Qt queues the call onto the UI thread (a lambda would run on the
+        worker thread and crash inside Qt's painting/text machinery)."""
+        self.set_data(data.left, data.right)
 
     def show_error(self, message: str) -> None:
         self._status.setText(message)
+
+    def on_save_failed(self, message: str) -> None:
+        self._status.setText(f"Save failed: {message}")
+
+    def _on_refresh_clicked(self) -> None:
+        if self._dirty["left"] or self._dirty["right"]:
+            self._status.setText("Unsaved changes — save or discard them, then refresh.")
+            return
+        self._status.setText("Reloading…")
+        self.refresh_requested.emit()
 
     def refresh_theme(self) -> None:
         if self._left_data is not None:
