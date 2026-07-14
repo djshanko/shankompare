@@ -46,6 +46,7 @@ ruff format .              # format
 - Type hints on all public functions and methods.
 - **Core logic (`vfs`, `compare`, `sessions`) must not import Qt.** Only `ui/` may depend on PySide6. Core must be unit-testable headless.
 - Long-running work (folder scans, SFTP transfers, diffs of large files) runs on worker threads; UI updates only via Qt signals.
+- **Worker signals must connect to bound methods of QObjects, never lambdas/partials.** A lambda has no receiver, so Qt runs it on the emitting worker thread — touching widgets there crashes intermittently. Lambdas are fine only for UI-thread signals (button clicks).
 - Credentials go through `keyring`, never in config files or code.
 - Paths and file content are Unicode-safe end to end; never assume a filesystem encoding.
 
