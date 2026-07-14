@@ -52,14 +52,14 @@ ruff format .              # format
 
 ## Packaging
 
-One-folder PyInstaller build (run on the target OS — PyInstaller does not cross-compile):
+Single-file PyInstaller build (run on the target OS — PyInstaller does not cross-compile):
 
 ```
 pip install -e .[dev,package]
 pyinstaller packaging/shankompare.spec --noconfirm
 ```
 
-The app lands in `dist/shankompare/` (`shankompare.exe` on Windows). Zip that folder to distribute; Inno Setup (Windows) or AppImage (Ubuntu) are options if a proper installer is ever wanted.
+The result is one self-contained executable: `dist/shankompare.exe` (Windows) or `dist/shankompare` (Ubuntu). Copy that single file anywhere — it has no sidecar folders. First launch takes a few extra seconds while the bundle unpacks itself to a temp directory.
 
 ## Working on this repo with Claude Code
 

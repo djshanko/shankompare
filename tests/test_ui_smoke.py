@@ -143,6 +143,16 @@ def test_text_compare_view_renders(app):
     assert "⋯" in view._left_pane.toPlainText() or view._left_pane.toPlainText()
 
 
+def test_text_compare_shows_current_line_marker(app):
+    view = TextCompareView("l", "r")
+    view.set_data(decode_bytes(b"same\ntext"), decode_bytes(b"same\ntext"))
+    # even with zero diffs, each pane carries the current-line highlight
+    assert len(view._left_pane.extraSelections()) == 1
+    assert len(view._right_pane.extraSelections()) == 1
+    view.set_data(decode_bytes(b"a\nb"), decode_bytes(b"a\nB"))
+    assert len(view._left_pane.extraSelections()) > 1  # diff highlights + marker
+
+
 def test_text_edit_mode_recompare_and_copy_section(app):
     from PySide6.QtGui import QTextCursor
 

@@ -69,6 +69,19 @@ class _Pane(QPlainTextEdit):
         self.setReadOnly(True)
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+        self._apply_interaction_flags()
+
+    def setReadOnly(self, read_only: bool) -> None:  # noqa: N802 (Qt override)
+        super().setReadOnly(read_only)
+        self._apply_interaction_flags()
+
+    def _apply_interaction_flags(self) -> None:
+        # keep a visible, keyboard-movable cursor even while read-only
+        if self.isReadOnly():
+            self.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+                | Qt.TextInteractionFlag.TextSelectableByKeyboard
+            )
 
 
 class TextCompareView(QWidget):
@@ -84,6 +97,7 @@ class TextCompareView(QWidget):
         self._syncing = False
         self._updating = False
         self._dirty = {"left": False, "right": False}
+        self._diff_selections: dict = {}
 
         self._left_info = QLabel(left_title)
         self._right_info = QLabel(right_title)
@@ -125,6 +139,8 @@ class TextCompareView(QWidget):
         self._debounce.timeout.connect(self._on_edited)
         self._left_pane.textChanged.connect(lambda: self._on_text_changed("left"))
         self._right_pane.textChanged.connect(lambda: self._on_text_changed("right"))
+        self._left_pane.cursorPositionChanged.connect(self._push_selections)
+        self._right_pane.cursorPositionChanged.connect(self._push_selections)
 
         titles = QHBoxLayout()
         titles.addWidget(self._left_info, 1)
@@ -320,8 +336,7 @@ class TextCompareView(QWidget):
                         self._right_pane, display_line, start, end, colors["intra"]
                     )
                 )
-        self._left_pane.setExtraSelections(left_selections)
-        self._right_pane.setExtraSelections(right_selections)
+        self._set_diff_selections(left_selections, right_selections)
 
     def _apply_highlights_raw(self) -> None:
         colors = _colors()
@@ -350,8 +365,24 @@ class TextCompareView(QWidget):
                         right_selections.append(
                             self._span_selection(self._right_pane, j, start, end, colors["intra"])
                         )
-        self._left_pane.setExtraSelections(left_selections)
-        self._right_pane.setExtraSelections(right_selections)
+        self._set_diff_selections(left_selections, right_selections)
+
+    def _set_diff_selections(self, left: list, right: list) -> None:
+        self._diff_selections = {self._left_pane: left, self._right_pane: right}
+        self._push_selections()
+
+    def _push_selections(self) -> None:
+        """Diff highlights plus a semi-transparent current-line marker."""
+        highlight = self.palette().highlight().color()
+        highlight.setAlpha(55)
+        for pane, diff_selections in self._diff_selections.items():
+            current = QTextEdit.ExtraSelection()
+            cursor = pane.textCursor()
+            cursor.clearSelection()
+            current.cursor = cursor
+            current.format.setBackground(highlight)
+            current.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
+            pane.setExtraSelections([*diff_selections, current])
 
     @staticmethod
     def _line_selection(pane: QPlainTextEdit, line: int, color: QColor) -> QTextEdit.ExtraSelection:
