@@ -18,11 +18,15 @@ from .text import (
     DiffBlock,
     Row,
     TextDiffOptions,
+    align_rows,
+    apply_copy_section,
+    block_index_for_left_line,
     compute_rows,
     condense_rows,
     decode_bytes,
     diff_lines,
     diff_run_starts,
+    encode_text,
 )
 
 __all__ = [
@@ -40,8 +44,12 @@ __all__ = [
     "Row",
     "Status",
     "TextDiffOptions",
+    "align_rows",
+    "apply_copy_section",
+    "block_index_for_left_line",
     "compare_folders",
     "compute_rows",
+    "encode_text",
     "condense_rows",
     "decode_bytes",
     "diff_lines",

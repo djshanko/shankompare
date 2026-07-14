@@ -62,6 +62,14 @@ class FileSystemContractTests:
         write(fs, "a.txt")
         assert fs.stat("a.txt").mtime.tzinfo is not None
 
+    def test_set_mtime(self, fs):
+        from datetime import UTC, datetime
+
+        write(fs, "a.txt")
+        stamp = datetime(2020, 5, 6, 7, 8, 9, tzinfo=UTC)
+        fs.set_mtime("a.txt", stamp)
+        assert abs((fs.stat("a.txt").mtime - stamp).total_seconds()) < 1.0
+
     def test_exists(self, fs):
         assert not fs.exists("a.txt")
         write(fs, "a.txt")

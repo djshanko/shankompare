@@ -80,6 +80,10 @@ class FileSystem(ABC):
         """Rename/move within this filesystem."""
 
     @abstractmethod
+    def set_mtime(self, path: PathLike, mtime: datetime) -> None:
+        """Set a file's or directory's modification time."""
+
+    @abstractmethod
     def close(self) -> None:
         """Release backend resources (connections, handles)."""
 

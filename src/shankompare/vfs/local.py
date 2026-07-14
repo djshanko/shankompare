@@ -85,5 +85,10 @@ class LocalFileSystem(FileSystem):
         with _translate():
             self._full(src).rename(self._full(dst))
 
+    def set_mtime(self, path: PathLike, mtime: datetime) -> None:
+        timestamp = mtime.timestamp()
+        with _translate():
+            os.utime(self._full(path), (timestamp, timestamp))
+
     def close(self) -> None:
         pass

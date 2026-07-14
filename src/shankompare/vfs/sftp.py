@@ -121,6 +121,11 @@ class SftpFileSystem(FileSystem):
         with _translate():
             self._sftp.rename(self._full(src), self._full(dst))
 
+    def set_mtime(self, path: PathLike, mtime: datetime) -> None:
+        timestamp = int(mtime.timestamp())  # SFTP mtimes are whole seconds
+        with _translate():
+            self._sftp.utime(self._full(path), (timestamp, timestamp))
+
     def resolve(self, path: str) -> str:
         """Server-absolute form of ``path`` (SFTP realpath). Used for browsing."""
         with _translate():

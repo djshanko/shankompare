@@ -50,11 +50,16 @@ ruff format .              # format
 - The VFS contract test suite runs against every `FileSystem` implementation; run it against `SftpFileSystem` manually with a real server (a Docker `atmoz/sftp` container works well) — it is skipped unless the `SHANKOMPARE_TEST_SFTP_*` environment variables are set, documented in `tests/test_sftp_fs.py`.
 - Comparer tests use an in-memory fake `FileSystem`, so no fixtures on disk.
 
-## Packaging (M3)
+## Packaging
 
-- Windows: PyInstaller one-folder build → zip or Inno Setup installer.
-- Ubuntu: PyInstaller build, or AppImage if distribution beyond the dev machine is ever needed.
-- Build on each target OS (PyInstaller does not cross-compile).
+One-folder PyInstaller build (run on the target OS — PyInstaller does not cross-compile):
+
+```
+pip install -e .[dev,package]
+pyinstaller packaging/shankompare.spec --noconfirm
+```
+
+The app lands in `dist/shankompare/` (`shankompare.exe` on Windows). Zip that folder to distribute; Inno Setup (Windows) or AppImage (Ubuntu) are options if a proper installer is ever wanted.
 
 ## Working on this repo with Claude Code
 

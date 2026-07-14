@@ -81,6 +81,7 @@ class Row:
     right_text: str | None
     left_spans: tuple[Span, ...] = ()  # differing character ranges (REPLACE rows)
     right_spans: tuple[Span, ...] = ()
+    block_index: int | None = None  # index into the DiffBlock list this row came from
 
 
 _SEPARATOR_ROW = Row(BlockKind.SEPARATOR, None, None, "⋯", "⋯")
@@ -132,13 +133,15 @@ def align_rows(left: str, right: str, blocks: list[DiffBlock]) -> list[Row]:
     """Expand diff blocks into aligned display rows with padding."""
     left_lines, right_lines = split_lines(left), split_lines(right)
     rows: list[Row] = []
-    for block in blocks:
+    for index, block in enumerate(blocks):
         left_count = block.left_end - block.left_start
         right_count = block.right_end - block.right_start
         if block.kind is BlockKind.EQUAL:
             for k in range(left_count):
                 i, j = block.left_start + k, block.right_start + k
-                rows.append(Row(BlockKind.EQUAL, i, j, left_lines[i], right_lines[j]))
+                rows.append(
+                    Row(BlockKind.EQUAL, i, j, left_lines[i], right_lines[j], block_index=index)
+                )
         elif block.kind is BlockKind.REPLACE:
             for k in range(max(left_count, right_count)):
                 i = block.left_start + k if k < left_count else None
@@ -150,16 +153,25 @@ def align_rows(left: str, right: str, blocks: list[DiffBlock]) -> list[Row]:
                 else:
                     left_spans, right_spans = (), ()
                 rows.append(
-                    Row(BlockKind.REPLACE, i, j, left_text, right_text, left_spans, right_spans)
+                    Row(
+                        BlockKind.REPLACE,
+                        i,
+                        j,
+                        left_text,
+                        right_text,
+                        left_spans,
+                        right_spans,
+                        block_index=index,
+                    )
                 )
         elif block.kind is BlockKind.DELETE:
             for k in range(left_count):
                 i = block.left_start + k
-                rows.append(Row(BlockKind.DELETE, i, None, left_lines[i], None))
+                rows.append(Row(BlockKind.DELETE, i, None, left_lines[i], None, block_index=index))
         else:  # INSERT
             for k in range(right_count):
                 j = block.right_start + k
-                rows.append(Row(BlockKind.INSERT, None, j, None, right_lines[j]))
+                rows.append(Row(BlockKind.INSERT, None, j, None, right_lines[j], block_index=index))
     return rows
 
 
@@ -191,6 +203,50 @@ def condense_rows(rows: list[Row], context: int = 3) -> list[Row]:
     if pending_gap:
         out.append(_SEPARATOR_ROW)
     return out
+
+
+def encode_text(text: str, encoding: str, eol: str) -> bytes:
+    """Encode edited text back to bytes, restoring the original EOL style.
+
+    Falls back to UTF-8 if the original encoding can't represent the text
+    (e.g. new characters added to a Latin-1 file).
+    """
+    out = text
+    if eol == "CRLF":
+        out = out.replace("\n", "\r\n")
+    elif eol == "CR":
+        out = out.replace("\n", "\r")
+    try:
+        return out.encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        return out.encode("utf-8")
+
+
+def apply_copy_section(left: str, right: str, block: DiffBlock, direction: str) -> tuple[str, str]:
+    """Copy one diff block's lines across; direction is "ltr" or "rtl"."""
+    left_lines, right_lines = split_lines(left), split_lines(right)
+    if direction == "ltr":
+        right_lines[block.right_start : block.right_end] = left_lines[
+            block.left_start : block.left_end
+        ]
+    else:
+        left_lines[block.left_start : block.left_end] = right_lines[
+            block.right_start : block.right_end
+        ]
+    return "\n".join(left_lines), "\n".join(right_lines)
+
+
+def block_index_for_left_line(blocks: list[DiffBlock], line: int) -> int | None:
+    """The difference block at/after a left-side line number (wraps to first)."""
+    diff_indexes = [i for i, b in enumerate(blocks) if b.kind is not BlockKind.EQUAL]
+    if not diff_indexes:
+        return None
+    for i in diff_indexes:
+        block = blocks[i]
+        anchor_end = max(block.left_end, block.left_start + 1)
+        if anchor_end > line:
+            return i
+    return diff_indexes[0]
 
 
 def diff_run_starts(rows: list[Row]) -> list[int]:

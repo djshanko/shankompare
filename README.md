@@ -6,16 +6,18 @@ Built as a personal, trimmed-down alternative to Beyond Compare 5: instead of re
 
 ## Features
 
-### Version 1 (in development)
+### Current (v1.x)
 
-- **Folder compare** — side-by-side tree view of two folders (local ↔ local, local ↔ SFTP, SFTP ↔ SFTP) with color-highlighted differences
-- **SFTP support** — named connection profiles, password and private-key authentication, credentials stored in the OS keyring
-- **Flexible comparison criteria** — last modified time, size, or file content
-- **Text compare** — side-by-side diff with within-line highlighting, jump to next/previous difference, show-only-differences filter
+- **Folder compare** — live-streaming side-by-side tree of two folders (local ↔ local, local ↔ SFTP, SFTP ↔ SFTP) with color-highlighted differences, display filters, and next/previous-difference navigation
+- **SFTP support** — named connection profiles, password and private-key authentication, credentials in the OS keyring, remote folder browser, automatic re-prompt on auth failure
+- **Flexible comparison criteria** — last modified time (with tolerance), size, file content (CRC32 or byte-by-byte), filename case sensitivity
+- **Text compare** — side-by-side diff with within-line highlighting, encoding/EOL detection, show-only-differences, inline editing with live recompare, copy sections between sides, save back preserving encoding
+- **File operations** — copy, delete, rename, and timestamp sync straight from the folder tree, queued in the background with progress
+- **Sessions & themes** — save/load comparisons as named sessions; light, dark, or follow-OS theme
 
 ### Planned
 
-Folder synchronization and file operations, saved sessions, dark mode, binary/hex compare, archive files as folders, FTP/FTPS, exclusion filters, and more — see [docs/ROADMAP.md](docs/ROADMAP.md).
+Dedicated sync commands, binary/hex compare, archive files as folders, FTP/FTPS, exclusion filters, and more — see [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Requirements
 

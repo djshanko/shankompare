@@ -2,7 +2,7 @@
 
 Cross-platform (Windows + Ubuntu) file/folder comparison tool, built as a lighter-weight personal replacement for Beyond Compare 5. Primary use case: side-by-side comparison between local folders and SFTP servers, plus text file diff.
 
-**Current status:** milestone M2 complete (v1 feature set) — streaming folder compare with display filters, side-by-side text compare with intra-line highlighting, remote SFTP browser, auth/connection recovery. Next step is milestone M3 (see docs/ROADMAP.md).
+**Current status:** milestone M3 complete (v1.x) — file operations with background queue, saved sessions, dark mode, inline text editing with copy-section and save, PyInstaller packaging. Next: M4+ backlog (see docs/ROADMAP.md).
 
 ## Tech Stack
 

@@ -25,6 +25,7 @@ from shankompare.vfs import (
     VfsConnectionError,
     VfsError,
 )
+from shankompare.vfs.ops import FileOp, OpsCancelled, execute_op
 
 log = logging.getLogger(__name__)
 
@@ -182,3 +183,72 @@ class TextDiffWorker(QObject):
             )
         with fs.open_read(self._rel_path) as f:
             return f.read()
+
+
+class TextSaveWorker(QObject):
+    """Writes one edited file back to its side."""
+
+    finished = Signal()
+    failed = Signal(str)
+
+    def __init__(self, spec: SideSpec, rel_path: str, data: bytes):
+        super().__init__()
+        self._spec = spec
+        self._rel_path = rel_path
+        self._data = data
+
+    def run(self) -> None:
+        try:
+            with open_side(self._spec) as fs, fs.open_write(self._rel_path) as f:
+                f.write(self._data)
+            self.finished.emit()
+        except VfsError as exc:
+            self.failed.emit(str(exc))
+        except Exception:
+            log.exception("text save worker crashed")
+            self.failed.emit("Unexpected error while saving; see the log output.")
+
+
+class FileOpsWorker(QObject):
+    """Executes a batch of file operations sequentially on one connection pair."""
+
+    progress = Signal(str)
+    finished = Signal(int, list)  # completed count, error messages
+    failed = Signal(str)  # could not even open the sides
+
+    def __init__(self, left: SideSpec, right: SideSpec, ops: list[FileOp]):
+        super().__init__()
+        self._left = left
+        self._right = right
+        self._ops = ops
+        self.cancel_event = threading.Event()
+
+    def run(self) -> None:
+        errors: list[str] = []
+        completed = 0
+        try:
+            with open_side(self._left) as left_fs, open_side(self._right) as right_fs:
+                for op in self._ops:
+                    if self.cancel_event.is_set():
+                        errors.append("Remaining operations cancelled.")
+                        break
+                    try:
+                        execute_op(
+                            left_fs,
+                            right_fs,
+                            op,
+                            progress=self.progress.emit,
+                            cancel=self.cancel_event,
+                        )
+                        completed += 1
+                    except OpsCancelled:
+                        errors.append(f"Cancelled during: {op.describe()}")
+                        break
+                    except VfsError as exc:
+                        errors.append(f"{op.describe()} — {exc}")
+            self.finished.emit(completed, errors)
+        except VfsError as exc:
+            self.failed.emit(str(exc))
+        except Exception:
+            log.exception("file ops worker crashed")
+            self.failed.emit("Unexpected error during file operations; see the log output.")

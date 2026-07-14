@@ -20,6 +20,9 @@ dev = [
     "pytest>=8",
     "ruff>=0.8",
 ]
+package = [
+    "pyinstaller>=6.16",
+]
 
 [project.gui-scripts]
 shankompare = "shankompare.__main__:main"

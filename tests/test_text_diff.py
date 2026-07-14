@@ -148,3 +148,59 @@ def test_diff_run_starts():
     right = "a\nB\nc\nD"
     rows = compute_rows(left, right)
     assert diff_run_starts(rows) == [1, 3]
+
+
+# --- encode-back, copy sections, block lookup ---------------------------------
+
+
+def test_encode_roundtrip_preserves_encoding_and_eol():
+    from shankompare.compare import encode_text
+
+    for raw in (b"a\r\nb\r\n", codecs.BOM_UTF8 + b"x\ny\n", "héllo\r\n".encode("utf-16")):
+        decoded = decode_bytes(raw)
+        assert encode_text(decoded.text, decoded.encoding, decoded.eol) == raw
+
+
+def test_encode_falls_back_to_utf8_when_latin1_cannot_encode():
+    from shankompare.compare import encode_text
+
+    assert encode_text("snowman ☃", "latin-1", "LF") == "snowman ☃".encode()
+
+
+def test_apply_copy_section_ltr():
+    from shankompare.compare import apply_copy_section
+
+    left = "one\nLEFT A\nLEFT B\nfour"
+    right = "one\nright\nfour"
+    blocks = diff_lines(left, right)
+    replace = next(b for b in blocks if b.kind is BlockKind.REPLACE)
+    new_left, new_right = apply_copy_section(left, right, replace, "ltr")
+    assert new_left == left
+    assert new_right == "one\nLEFT A\nLEFT B\nfour"
+
+
+def test_apply_copy_section_rtl_removes_left_only_lines():
+    from shankompare.compare import apply_copy_section
+
+    left = "one\nextra\ntwo"
+    right = "one\ntwo"
+    blocks = diff_lines(left, right)
+    delete = next(b for b in blocks if b.kind is BlockKind.DELETE)
+    new_left, new_right = apply_copy_section(left, right, delete, "rtl")
+    assert new_left == "one\ntwo"
+    assert new_right == right
+
+
+def test_block_index_for_left_line():
+    from shankompare.compare import block_index_for_left_line
+
+    left = "a\nb\nc\nd\ne"
+    right = "a\nB\nc\nd\nE"
+    blocks = diff_lines(left, right)  # equal, replace(1), equal, replace(4)
+    assert block_index_for_left_line(blocks, 0) == 1
+    assert block_index_for_left_line(blocks, 1) == 1
+    assert block_index_for_left_line(blocks, 2) == 3
+    assert block_index_for_left_line(blocks, 4) == 3
+    # past the last difference wraps to the first
+    assert block_index_for_left_line(diff_lines("a\nX", "a\nY"), 5) == 1
+    assert block_index_for_left_line(diff_lines("same", "same"), 0) is None

@@ -125,7 +125,6 @@ class InMemoryFileSystem(FileSystem):
         dst_parent.children[dst_name] = src_parent.children.pop(src_name)
 
     def set_mtime(self, path: PathLike, mtime: datetime) -> None:
-        """Test helper (not part of the FileSystem interface)."""
         self._node(path).mtime = mtime
 
     def close(self) -> None:

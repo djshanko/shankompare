@@ -1,10 +1,12 @@
-"""Folder comparison result view: filter toolbar + streaming tree."""
+"""Folder comparison result view: filter toolbar + streaming tree + file ops."""
 
-from PySide6.QtCore import QModelIndex, Signal
+from PySide6.QtCore import QModelIndex, QPoint, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QMenu,
     QPushButton,
     QTreeView,
     QVBoxLayout,
@@ -12,12 +14,14 @@ from PySide6.QtWidgets import (
 )
 
 from shankompare.compare import NodeResult, Status
+from shankompare.vfs.ops import FileOp, OpKind
 
 from .folder_model import _ROOT_INDEX, FilterMode, FolderCompareModel, StatusFilterProxy
 
 
 class FolderCompareView(QWidget):
     open_diff_requested = Signal(object, str)  # (NodeResult, rel_path)
+    ops_requested = Signal(list)  # list[FileOp]
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -43,6 +47,9 @@ class FolderCompareView(QWidget):
         self._tree.setColumnWidth(2, 150)
         self._tree.setColumnWidth(4, 150)
         self._tree.doubleClicked.connect(self._on_activated)
+        self._tree.setSelectionMode(QTreeView.SelectionMode.ExtendedSelection)
+        self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._tree.customContextMenuRequested.connect(self._show_context_menu)
 
         toolbar = QHBoxLayout()
         toolbar.addWidget(QLabel("Show:"))
@@ -92,6 +99,70 @@ class FolderCompareView(QWidget):
         node = item.node
         if not node.is_dir and node.left is not None and node.right is not None:
             self.open_diff_requested.emit(node, str(item.rel_path))
+
+    # --- file operations context menu ---------------------------------------------
+
+    def _selected_items(self) -> list:
+        items = []
+        for index in self._tree.selectionModel().selectedRows(0):
+            item = self._proxy.data(index, FolderCompareModel.NodeRole)
+            if item is not None:
+                items.append(item)
+        return items
+
+    def _show_context_menu(self, pos: QPoint) -> None:
+        items = self._selected_items()
+        if not items:
+            return
+        with_left = [i for i in items if i.node.left is not None]
+        with_right = [i for i in items if i.node.right is not None]
+        file_pairs = [
+            i
+            for i in items
+            if not i.node.is_dir and i.node.left is not None and i.node.right is not None
+        ]
+
+        menu = QMenu(self)
+
+        def add(label: str, eligible: list, builder) -> None:
+            action = menu.addAction(label)
+            if eligible:
+                ops = [builder(item) for item in eligible]
+                action.triggered.connect(lambda _=False, o=ops: self.ops_requested.emit(o))
+            else:
+                action.setEnabled(False)
+
+        add("Copy to right", with_left, lambda i: FileOp(OpKind.COPY_LTR, str(i.rel_path)))
+        add("Copy to left", with_right, lambda i: FileOp(OpKind.COPY_RTL, str(i.rel_path)))
+        menu.addSeparator()
+        add("Delete on left", with_left, lambda i: FileOp(OpKind.DELETE_LEFT, str(i.rel_path)))
+        add("Delete on right", with_right, lambda i: FileOp(OpKind.DELETE_RIGHT, str(i.rel_path)))
+        menu.addSeparator()
+        add(
+            "Copy timestamp to right",
+            file_pairs,
+            lambda i: FileOp(OpKind.MTIME_LTR, str(i.rel_path)),
+        )
+        add(
+            "Copy timestamp to left",
+            file_pairs,
+            lambda i: FileOp(OpKind.MTIME_RTL, str(i.rel_path)),
+        )
+        menu.addSeparator()
+        rename_action = menu.addAction("Rename…")
+        rename_action.setEnabled(len(items) == 1)
+        if len(items) == 1:
+            rename_action.triggered.connect(lambda _=False, i=items[0]: self._rename(i))
+
+        menu.exec(self._tree.viewport().mapToGlobal(pos))
+
+    def _rename(self, item) -> None:
+        new_name, ok = QInputDialog.getText(
+            self, "Rename", f"New name for {item.node.name}:", text=item.node.name
+        )
+        new_name = new_name.strip()
+        if ok and new_name and new_name != item.node.name:
+            self.ops_requested.emit([FileOp(OpKind.RENAME, str(item.rel_path), new_name=new_name)])
 
     # --- next/previous difference ------------------------------------------------
 

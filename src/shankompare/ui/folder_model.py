@@ -27,12 +27,26 @@ STATUS_LABEL = {
     Status.UNKNOWN: "Unknown",
 }
 
-STATUS_COLOR = {
+_STATUS_COLOR_LIGHT = {
     Status.DIFFERENT: QColor("#c62828"),
     Status.LEFT_ONLY: QColor("#1565c0"),
     Status.RIGHT_ONLY: QColor("#2e7d32"),
     Status.UNKNOWN: QColor("#9e6a03"),
 }
+
+_STATUS_COLOR_DARK = {
+    Status.DIFFERENT: QColor("#ef9a9a"),
+    Status.LEFT_ONLY: QColor("#90caf9"),
+    Status.RIGHT_ONLY: QColor("#a5d6a7"),
+    Status.UNKNOWN: QColor("#ffcc80"),
+}
+
+
+def status_color(status: Status) -> QColor | None:
+    from .theme import is_dark
+
+    palette = _STATUS_COLOR_DARK if is_dark() else _STATUS_COLOR_LIGHT
+    return palette.get(status)
 
 
 def _fmt_size(entry: EntryInfo | None) -> str:
@@ -179,7 +193,7 @@ class FolderCompareModel(QAbstractItemModel):
             label = STATUS_LABEL[node.status]
             return f"{label} ⚠" if node.error else label
         if role == Qt.ItemDataRole.ForegroundRole:
-            color = STATUS_COLOR.get(node.status)
+            color = status_color(node.status)
             return QBrush(color) if color is not None else None
         if role == Qt.ItemDataRole.ToolTipRole:
             return node.error

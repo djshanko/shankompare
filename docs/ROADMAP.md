@@ -23,13 +23,13 @@ Goal: daily-drivable for the primary use case.
 - Robust SFTP error handling (re-prompt on auth failure, retry on connection loss).
 - **This is the v1 release.**
 
-## M3 — Quality of life (v1.x)
+## M3 — Quality of life (v1.x) ✅ (done 2026-07-14)
 
-- File operations from the folder view: copy and delete across sides, then move/rename/set-mtime — with background progress and multiple queued operations.
-- Sessions: save/load a comparison (sides + options) as a named session.
-- Dark mode (Qt palette based, follow-OS by default with manual override).
-- Inline editing in text compare with dynamic recomparison; gutter buttons to copy sections between sides.
-- Packaging: PyInstaller builds for Windows and Ubuntu.
+- File operations from the folder view: copy and delete across sides, plus rename and set-mtime — background queue with progress, auto re-compare when the queue drains.
+- Sessions: save/load a comparison (sides + options) as a named session (Session menu).
+- Dark mode: follows the OS by default with manual override (View → Theme); all diff/status colors are scheme-aware.
+- Inline editing in text compare (Edit mode) with debounced dynamic recomparison; copy-section buttons move the current difference between sides; Save writes back preserving encoding and EOL style.
+- Packaging: PyInstaller one-folder builds (`packaging/shankompare.spec`).
 
 ## M4+ — Backlog (future)
 

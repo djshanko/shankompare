@@ -141,3 +141,58 @@ def test_text_compare_view_renders(app):
     # only-differences mode
     view._only_diff.setChecked(True)
     assert "⋯" in view._left_pane.toPlainText() or view._left_pane.toPlainText()
+
+
+def test_text_edit_mode_recompare_and_copy_section(app):
+    from PySide6.QtGui import QTextCursor
+
+    view = TextCompareView("left.txt", "right.txt")
+    view.set_data(decode_bytes(b"one\ntwo\nthree"), decode_bytes(b"one\ntwo\nthree"))
+    assert "identical" in view._status.text()
+
+    view._edit_check.setChecked(True)
+    view._left_pane.setPlainText("one\nCHANGED\nthree")  # simulate a user edit
+    view._on_edited()  # bypass the debounce timer
+    assert view._dirty["left"]
+    assert "1 difference" in view._status.text()
+
+    # copy the changed section left -> right
+    cursor = QTextCursor(view._left_pane.document().findBlockByNumber(1))
+    view._left_pane.setTextCursor(cursor)
+    view._copy_section("ltr")
+    assert view._right_data.text == "one\nCHANGED\nthree"
+    assert view._dirty["right"]
+
+    # saving emits the encoded bytes
+    saved = []
+    view.save_requested.connect(lambda side, data: saved.append((side, data)))
+    view._save("right")
+    assert saved == [("right", b"one\nCHANGED\nthree")]
+    view.mark_saved("right")
+    assert not view._dirty["right"]
+
+
+def test_file_ops_worker_copy_and_delete(app, tmp_path):
+    from shankompare.ui.worker import FileOpsWorker
+    from shankompare.vfs.ops import FileOp, OpKind
+
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    left.mkdir()
+    right.mkdir()
+    (left / "new.txt").write_text("payload")
+    (right / "obsolete.txt").write_text("x")
+
+    worker = FileOpsWorker(
+        LocalSide(str(left)),
+        LocalSide(str(right)),
+        [FileOp(OpKind.COPY_LTR, "new.txt"), FileOp(OpKind.DELETE_RIGHT, "obsolete.txt")],
+    )
+    results = []
+    worker.finished.connect(lambda completed, errors: results.append((completed, errors)))
+    worker.failed.connect(lambda message: pytest.fail(message))
+    worker.run()
+
+    assert results == [(2, [])]
+    assert (right / "new.txt").read_text() == "payload"
+    assert not (right / "obsolete.txt").exists()

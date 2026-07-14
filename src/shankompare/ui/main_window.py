@@ -3,7 +3,7 @@
 from dataclasses import replace
 
 from PySide6.QtCore import QThread
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QActionGroup, QCloseEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -22,18 +22,32 @@ from PySide6.QtWidgets import (
 )
 
 from shankompare.compare import CompareOptions, ContentMode, NodeResult
-from shankompare.sessions import AUTH_PASSWORD, ConnectionProfile, ProfileStore
+from shankompare.sessions import (
+    AUTH_PASSWORD,
+    SIDE_LOCAL,
+    SIDE_SFTP,
+    ConnectionProfile,
+    ProfileStore,
+    Session,
+    SessionSide,
+    SessionStore,
+    SettingsStore,
+)
+from shankompare.vfs.ops import FileOp, OpKind
 
 from .folder_view import FolderCompareView
 from .profile_dialog import ProfileDialog
 from .remote_browse import RemoteBrowseDialog
 from .text_compare import TextCompareView
+from .theme import THEMES, apply_theme
 from .worker import (
     CompareWorker,
+    FileOpsWorker,
     LocalSide,
     SftpSide,
     SideSpec,
     TextDiffWorker,
+    TextSaveWorker,
     start_worker,
 )
 
@@ -101,6 +115,25 @@ class SidePicker(QGroupBox):
             self._path.setPlaceholderText("Remote path")
             self._path.setText(profile.initial_path)
 
+    def to_session_side(self) -> SessionSide:
+        profile = self.selected_profile()
+        if profile is None:
+            return SessionSide(SIDE_LOCAL, self.path())
+        return SessionSide(SIDE_SFTP, self.path(), profile=profile.name)
+
+    def apply_session_side(self, side: SessionSide) -> bool:
+        """Returns False when the side references a profile that no longer exists."""
+        if side.kind == SIDE_LOCAL:
+            self._source.setCurrentIndex(0)
+            self._path.setText(side.path)
+            return True
+        for offset, profile in enumerate(self._profiles):
+            if profile.name == side.profile:
+                self._source.setCurrentIndex(offset + 1)
+                self._path.setText(side.path)
+                return True
+        return False
+
     def _on_browse(self) -> None:
         profile = self.selected_profile()
         if profile is None:
@@ -126,10 +159,17 @@ class MainWindow(QMainWindow):
 
         self._store = ProfileStore()
         self._profiles = self._store.load()
+        self._session_store = SessionStore()
+        self._sessions = self._session_store.load()
+        self._settings_store = SettingsStore()
+        self._settings = self._settings_store.load()
         self._compare_thread: QThread | None = None
         self._compare_worker: CompareWorker | None = None
         self._text_threads: list[QThread] = []
         self._sides: tuple[SideSpec, SideSpec] | None = None
+        self._ops_thread: QThread | None = None
+        self._ops_worker: FileOpsWorker | None = None
+        self._ops_pending: list[FileOp] = []
 
         self._left_picker = SidePicker("Left side")
         self._right_picker = SidePicker("Right side")
@@ -160,6 +200,7 @@ class MainWindow(QMainWindow):
 
         self._folder_view = FolderCompareView()
         self._folder_view.open_diff_requested.connect(self._open_text_diff)
+        self._folder_view.ops_requested.connect(self._enqueue_ops)
 
         sides_row = QHBoxLayout()
         sides_row.addWidget(self._left_picker)
@@ -198,6 +239,96 @@ class MainWindow(QMainWindow):
 
         self._left_picker.set_profiles(self._profiles)
         self._right_picker.set_profiles(self._profiles)
+        self._build_menus()
+
+    # --- menus ------------------------------------------------------------------
+
+    def _build_menus(self) -> None:
+        bar = self.menuBar()
+        bar.clear()
+
+        session_menu = bar.addMenu("&Session")
+        save_action = session_menu.addAction("Save current…")
+        save_action.triggered.connect(self._save_session)
+        if self._sessions:
+            session_menu.addSeparator()
+            for session in self._sessions:
+                action = session_menu.addAction(session.name)
+                action.triggered.connect(lambda _=False, s=session: self._load_session(s))
+            session_menu.addSeparator()
+            delete_action = session_menu.addAction("Delete…")
+            delete_action.triggered.connect(self._delete_session)
+
+        view_menu = bar.addMenu("&View")
+        theme_menu = view_menu.addMenu("Theme")
+        group = QActionGroup(self)
+        for theme in THEMES:
+            action = theme_menu.addAction(theme.capitalize())
+            action.setCheckable(True)
+            action.setChecked(theme == self._settings.theme)
+            action.triggered.connect(lambda _=False, t=theme: self._set_theme(t))
+            group.addAction(action)
+
+    def _set_theme(self, theme: str) -> None:
+        self._settings.theme = theme
+        self._settings_store.save(self._settings)
+        apply_theme(theme)
+        # repaint views whose colors depend on the scheme
+        self._folder_view.expand_differences()
+        self._folder_view.update()
+        for index in range(1, self._tabs.count()):
+            widget = self._tabs.widget(index)
+            if isinstance(widget, TextCompareView):
+                widget.refresh_theme()
+
+    # --- sessions ---------------------------------------------------------------
+
+    def _save_session(self) -> None:
+        name, ok = QInputDialog.getText(self, "Save session", "Session name:")
+        name = name.strip()
+        if not ok or not name:
+            return
+        options = self._options()
+        session = Session(
+            name=name,
+            left=self._left_picker.to_session_side(),
+            right=self._right_picker.to_session_side(),
+            use_size=options.use_size,
+            use_mtime=options.use_mtime,
+            mtime_tolerance=options.mtime_tolerance,
+            content=options.content.value,
+            case_sensitive=options.case_sensitive,
+        )
+        self._sessions = [s for s in self._sessions if s.name != name] + [session]
+        self._session_store.save(self._sessions)
+        self._build_menus()
+        self.statusBar().showMessage(f"Session '{name}' saved.")
+
+    def _load_session(self, session: Session) -> None:
+        ok_left = self._left_picker.apply_session_side(session.left)
+        ok_right = self._right_picker.apply_session_side(session.right)
+        self._size_check.setChecked(session.use_size)
+        self._mtime_check.setChecked(session.use_mtime)
+        self._tolerance.setValue(session.mtime_tolerance)
+        index = self._content_combo.findData(ContentMode(session.content))
+        self._content_combo.setCurrentIndex(max(index, 0))
+        self._case_check.setChecked(session.case_sensitive)
+        if not (ok_left and ok_right):
+            QMessageBox.warning(
+                self,
+                "Session",
+                "A profile referenced by this session no longer exists; "
+                "that side was left unchanged.",
+            )
+        self.statusBar().showMessage(f"Session '{session.name}' loaded.")
+
+    def _delete_session(self) -> None:
+        names = [s.name for s in self._sessions]
+        name, ok = QInputDialog.getItem(self, "Delete session", "Session:", names, 0, False)
+        if ok and name:
+            self._sessions = [s for s in self._sessions if s.name != name]
+            self._session_store.save(self._sessions)
+            self._build_menus()
 
     # --- profiles -------------------------------------------------------------
 
@@ -330,6 +461,64 @@ class MainWindow(QMainWindow):
         self._compare_btn.setEnabled(True)
         self._cancel_btn.setEnabled(False)
 
+    # --- file operations -------------------------------------------------------------
+
+    def _enqueue_ops(self, ops: list[FileOp]) -> None:
+        if self._sides is None or not ops:
+            return
+        deletes = [op for op in ops if op.kind in (OpKind.DELETE_LEFT, OpKind.DELETE_RIGHT)]
+        if deletes:
+            summary = "\n".join(op.describe() for op in deletes[:10])
+            if len(deletes) > 10:
+                summary += f"\n… and {len(deletes) - 10} more"
+            answer = QMessageBox.question(
+                self,
+                "Confirm delete",
+                f"This will permanently delete:\n\n{summary}\n\nContinue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        self._ops_pending.extend(ops)
+        self._maybe_start_ops()
+
+    def _maybe_start_ops(self) -> None:
+        if self._ops_thread is not None or not self._ops_pending or self._sides is None:
+            return
+        batch, self._ops_pending = self._ops_pending, []
+        left, right = self._sides
+        worker = FileOpsWorker(left, right, batch)
+        worker.progress.connect(self.statusBar().showMessage)
+        worker.finished.connect(self._on_ops_finished)
+        worker.failed.connect(self._on_ops_failed)
+        self._ops_worker = worker
+        self._ops_thread = start_worker(worker, self, [worker.finished, worker.failed])
+        self._ops_thread.finished.connect(self._on_ops_thread_done)
+
+    def _on_ops_finished(self, completed: int, errors: list) -> None:
+        if errors:
+            QMessageBox.warning(
+                self,
+                "File operations",
+                f"{completed} operation(s) completed, {len(errors)} problem(s):\n\n"
+                + "\n".join(errors[:15]),
+            )
+        else:
+            self.statusBar().showMessage(f"{completed} file operation(s) completed.")
+
+    def _on_ops_failed(self, message: str) -> None:
+        self._ops_pending.clear()
+        QMessageBox.critical(self, "File operations failed", message)
+
+    def _on_ops_thread_done(self) -> None:
+        self._ops_thread = None
+        self._ops_worker = None
+        if self._ops_pending:
+            self._maybe_start_ops()
+        elif self._sides is not None and self._compare_thread is None:
+            # refresh the tree so the result reflects the changes
+            self._launch(*self._sides)
+
     # --- text compare tabs ---------------------------------------------------------
 
     def _open_text_diff(self, node: NodeResult, rel_path: str) -> None:
@@ -337,13 +526,27 @@ class MainWindow(QMainWindow):
             return
         left, right = self._sides
         view = TextCompareView(f"Left: {rel_path}", f"Right: {rel_path}")
+        view.save_requested.connect(
+            lambda side, data, v=view, rel=rel_path: self._save_text(v, side, rel, data)
+        )
         index = self._tabs.addTab(view, node.name)
         self._tabs.setCurrentIndex(index)
 
         worker = TextDiffWorker(left, right, rel_path)
         worker.finished.connect(lambda data, v=view: v.set_data(data.left, data.right))
         worker.failed.connect(lambda message, v=view: v.show_error(message))
-        thread = start_worker(worker, self, [worker.finished, worker.failed])
+        self._track_thread(start_worker(worker, self, [worker.finished, worker.failed]))
+
+    def _save_text(self, view: TextCompareView, side: str, rel_path: str, data: bytes) -> None:
+        if self._sides is None:
+            return
+        spec = self._sides[0] if side == "left" else self._sides[1]
+        worker = TextSaveWorker(spec, rel_path, data)
+        worker.finished.connect(lambda v=view, s=side: v.mark_saved(s))
+        worker.failed.connect(lambda message, v=view: v.show_error(f"Save failed: {message}"))
+        self._track_thread(start_worker(worker, self, [worker.finished, worker.failed]))
+
+    def _track_thread(self, thread: QThread) -> None:
         self._text_threads.append(thread)
         thread.finished.connect(lambda t=thread: self._text_threads.remove(t))
 
@@ -359,7 +562,9 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._compare_worker is not None:
             self._compare_worker.cancel_event.set()
-        for thread in [self._compare_thread, *self._text_threads]:
+        if self._ops_worker is not None:
+            self._ops_worker.cancel_event.set()
+        for thread in [self._compare_thread, self._ops_thread, *self._text_threads]:
             if thread is not None and thread.isRunning():
                 thread.quit()
                 thread.wait(3000)
