@@ -47,7 +47,7 @@ ruff format .              # format
 ## Testing notes
 
 - Core layers (`vfs`, `compare`, `sessions`) have no Qt dependency — test them headless.
-- The VFS contract test suite runs against every `FileSystem` implementation; run it against `SftpFileSystem` manually with a real server (a Docker `atmoz/sftp` container works well) — it is skipped by default in CI-style runs.
+- The VFS contract test suite runs against every `FileSystem` implementation; run it against `SftpFileSystem` manually with a real server (a Docker `atmoz/sftp` container works well) — it is skipped unless the `SHANKOMPARE_TEST_SFTP_*` environment variables are set, documented in `tests/test_sftp_fs.py`.
 - Comparer tests use an in-memory fake `FileSystem`, so no fixtures on disk.
 
 ## Packaging (M3)
