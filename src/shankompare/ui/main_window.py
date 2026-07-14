@@ -2,7 +2,7 @@
 
 from dataclasses import replace
 
-from PySide6.QtCore import QThread
+from PySide6.QtCore import Qt, QThread
 from PySide6.QtGui import QActionGroup, QCloseEvent
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -12,16 +12,28 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QInputDialog,
+    QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from shankompare.compare import CompareOptions, ContentMode, NodeResult
+from shankompare import __version__
+from shankompare.compare import (
+    CompareOptions,
+    ContentMode,
+    ExcludeFilters,
+    NodeResult,
+    SyncPlan,
+    plan_mirror,
+    plan_update_both,
+)
 from shankompare.sessions import (
     AUTH_PASSWORD,
     SIDE_LOCAL,
@@ -35,21 +47,39 @@ from shankompare.sessions import (
 )
 from shankompare.vfs.ops import FileOp, OpKind
 
+from .filters_dialog import FiltersDialog
 from .folder_view import FolderCompareView
+from .help_dialog import HelpDialog
+from .hex_compare import HexCompareView
 from .profile_dialog import ProfileDialog
 from .remote_browse import RemoteBrowseDialog
+from .resources import doc_path
 from .text_compare import TextCompareView
 from .theme import THEMES, apply_theme
 from .worker import (
     CompareWorker,
+    DiffLoadWorker,
     FileOpsWorker,
     LocalSide,
     SftpSide,
     SideSpec,
-    TextDiffWorker,
     TextSaveWorker,
     start_worker,
 )
+
+
+class _LoadingTab(QWidget):
+    """Placeholder tab shown while a diff loads (swapped out on arrival)."""
+
+    def __init__(self, rel_path: str):
+        super().__init__()
+        self._label = QLabel(f"Loading {rel_path}…")
+        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self._label)
+
+    def show_error(self, message: str) -> None:
+        self._label.setText(message)
 
 
 def prompt_secret(parent: QWidget, profile: ConnectionProfile) -> tuple[str | None, bool]:
@@ -171,6 +201,9 @@ class MainWindow(QMainWindow):
         self._ops_worker: FileOpsWorker | None = None
         self._ops_pending: list[FileOp] = []
         self._pending_relaunch: tuple[SideSpec, SideSpec] | None = None
+        self._exclude = ExcludeFilters()
+        self._last_root: NodeResult | None = None
+        self._pending_diffs: dict[object, tuple[QWidget, str]] = {}
 
         self._left_picker = SidePicker("Left side")
         self._right_picker = SidePicker("Right side")
@@ -191,6 +224,25 @@ class MainWindow(QMainWindow):
         self._case_check = QCheckBox("Case sensitive")
         self._case_check.setChecked(True)
 
+        self._filters_btn = QPushButton("Filters…")
+        self._filters_btn.clicked.connect(self._edit_filters)
+        self._sync_btn = QToolButton()
+        self._sync_btn.setText("Sync")
+        self._sync_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._sync_btn.setEnabled(False)
+        self._sync_btn.setToolTip("Run a comparison first")
+        sync_menu = QMenu(self._sync_btn)
+        sync_menu.addAction("Mirror left → right…").triggered.connect(
+            lambda: self._run_sync("mirror-ltr")
+        )
+        sync_menu.addAction("Mirror right → left…").triggered.connect(
+            lambda: self._run_sync("mirror-rtl")
+        )
+        sync_menu.addAction("Update both (newer wins)…").triggered.connect(
+            lambda: self._run_sync("update-both")
+        )
+        self._sync_btn.setMenu(sync_menu)
+
         profiles_btn = QPushButton("Profiles…")
         profiles_btn.clicked.connect(self._edit_profiles)
         self._compare_btn = QPushButton("Compare")
@@ -200,7 +252,7 @@ class MainWindow(QMainWindow):
         self._cancel_btn.clicked.connect(self._cancel)
 
         self._folder_view = FolderCompareView()
-        self._folder_view.open_diff_requested.connect(self._open_text_diff)
+        self._folder_view.open_diff_requested.connect(self._open_diff)
         self._folder_view.ops_requested.connect(self._enqueue_ops)
 
         sides_row = QHBoxLayout()
@@ -216,7 +268,9 @@ class MainWindow(QMainWindow):
             self._case_check,
         ):
             options_row.addWidget(widget)
+        options_row.addWidget(self._filters_btn)
         options_row.addStretch(1)
+        options_row.addWidget(self._sync_btn)
         options_row.addWidget(profiles_btn)
         options_row.addWidget(self._compare_btn)
         options_row.addWidget(self._cancel_btn)
@@ -270,6 +324,27 @@ class MainWindow(QMainWindow):
             action.triggered.connect(lambda _=False, t=theme: self._set_theme(t))
             group.addAction(action)
 
+        help_menu = bar.addMenu("&Help")
+        manual_action = help_menu.addAction("User Manual")
+        manual_action.triggered.connect(lambda: self._show_doc("User Manual", "MANUAL.md"))
+        notes_action = help_menu.addAction("Release Notes")
+        notes_action.triggered.connect(lambda: self._show_doc("Release Notes", "RELEASE-NOTES.md"))
+        help_menu.addSeparator()
+        about_action = help_menu.addAction("About shankompare")
+        about_action.triggered.connect(self._show_about)
+
+    def _show_doc(self, title: str, name: str) -> None:
+        HelpDialog(title, doc_path(name), parent=self).show()
+
+    def _show_about(self) -> None:
+        QMessageBox.about(
+            self,
+            "About shankompare",
+            f"<b>shankompare {__version__}</b><br>"
+            "Cross-platform folder and file comparison with SFTP support.<br>"
+            "See Help → User Manual to get started.",
+        )
+
     def _set_theme(self, theme: str) -> None:
         self._settings.theme = theme
         self._settings_store.save(self._settings)
@@ -279,7 +354,7 @@ class MainWindow(QMainWindow):
         self._folder_view.update()
         for index in range(1, self._tabs.count()):
             widget = self._tabs.widget(index)
-            if isinstance(widget, TextCompareView):
+            if isinstance(widget, TextCompareView | HexCompareView):
                 widget.refresh_theme()
 
     # --- sessions ---------------------------------------------------------------
@@ -300,6 +375,7 @@ class MainWindow(QMainWindow):
             content=options.content.value,
             case_sensitive=options.case_sensitive,
         )
+        session.set_exclude_filters(self._exclude)
         self._sessions = [s for s in self._sessions if s.name != name] + [session]
         self._session_store.save(self._sessions)
         self._build_menus()
@@ -314,6 +390,8 @@ class MainWindow(QMainWindow):
         index = self._content_combo.findData(ContentMode(session.content))
         self._content_combo.setCurrentIndex(max(index, 0))
         self._case_check.setChecked(session.case_sensitive)
+        self._exclude = session.exclude_filters()
+        self._update_filters_button()
         if not (ok_left and ok_right):
             QMessageBox.warning(
                 self,
@@ -340,6 +418,21 @@ class MainWindow(QMainWindow):
             self._left_picker.set_profiles(self._profiles)
             self._right_picker.set_profiles(self._profiles)
 
+    # --- exclusion filters ---------------------------------------------------------
+
+    def _edit_filters(self) -> None:
+        dialog = FiltersDialog(self._exclude, self)
+        if dialog.exec():
+            self._exclude = dialog.filters()
+            self._update_filters_button()
+
+    def _update_filters_button(self) -> None:
+        active = self._exclude != ExcludeFilters()
+        self._filters_btn.setText("Filters ● …" if active else "Filters…")
+        self._filters_btn.setToolTip(
+            "Exclusion filters are active" if active else "No exclusion filters"
+        )
+
     # --- folder comparison ------------------------------------------------------
 
     def _options(self) -> CompareOptions:
@@ -349,6 +442,7 @@ class MainWindow(QMainWindow):
             mtime_tolerance=self._tolerance.value(),
             content=self._content_combo.currentData(),
             case_sensitive=self._case_check.isChecked(),
+            exclude=self._exclude,
         )
 
     def _side_spec(self, picker: SidePicker) -> SideSpec | None:
@@ -402,9 +496,49 @@ class MainWindow(QMainWindow):
     def _on_compare_finished(self, root: NodeResult | None) -> None:
         if root is not None:
             self._folder_view.set_result(root)
+            self._last_root = root
+            self._sync_btn.setEnabled(True)
+            self._sync_btn.setToolTip("Synchronize the two sides")
             self.statusBar().showMessage("Comparison finished.")
         else:
             self.statusBar().showMessage("Comparison cancelled.")
+
+    # --- synchronization ---------------------------------------------------------
+
+    def _run_sync(self, kind: str) -> None:
+        if self._last_root is None or self._sides is None:
+            return
+        if kind == "mirror-ltr":
+            plan, title = plan_mirror(self._last_root, "ltr"), "Mirror left → right"
+        elif kind == "mirror-rtl":
+            plan, title = plan_mirror(self._last_root, "rtl"), "Mirror right → left"
+        else:
+            plan, title = plan_update_both(self._last_root), "Update both"
+        if not plan.ops and not plan.warnings:
+            QMessageBox.information(self, title, "The two sides are already in sync.")
+            return
+        if self._confirm_sync(title, plan):
+            self._enqueue_ops(plan.ops, confirmed=True)
+
+    def _confirm_sync(self, title: str, plan: SyncPlan) -> bool:
+        lines = [f"Plan: {plan.summary()}", ""]
+        lines += [op.describe() for op in plan.ops[:15]]
+        if len(plan.ops) > 15:
+            lines.append(f"… and {len(plan.ops) - 15} more operation(s)")
+        if plan.warnings:
+            lines += ["", "Warnings:"] + plan.warnings[:10]
+            if len(plan.warnings) > 10:
+                lines.append(f"… and {len(plan.warnings) - 10} more warning(s)")
+        if not plan.ops:
+            QMessageBox.warning(self, title, "\n".join(lines))
+            return False
+        answer = QMessageBox.question(
+            self,
+            title,
+            "\n".join(lines) + "\n\nProceed?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        return answer == QMessageBox.StandardButton.Yes
 
     def _on_compare_failed(self, kind: str, side: str, message: str) -> None:
         if kind == "auth" and self._retry_auth(side, message):
@@ -470,11 +604,11 @@ class MainWindow(QMainWindow):
 
     # --- file operations -------------------------------------------------------------
 
-    def _enqueue_ops(self, ops: list[FileOp]) -> None:
+    def _enqueue_ops(self, ops: list[FileOp], confirmed: bool = False) -> None:
         if self._sides is None or not ops:
             return
         deletes = [op for op in ops if op.kind in (OpKind.DELETE_LEFT, OpKind.DELETE_RIGHT)]
-        if deletes:
+        if deletes and not confirmed:
             summary = "\n".join(op.describe() for op in deletes[:10])
             if len(deletes) > 10:
                 summary += f"\n… and {len(deletes) - 10} more"
@@ -526,36 +660,87 @@ class MainWindow(QMainWindow):
             # refresh the tree so the result reflects the changes
             self._launch(*self._sides)
 
-    # --- text compare tabs ---------------------------------------------------------
+    # --- diff tabs (text and hex) ------------------------------------------------
 
     # NOTE: signals emitted from worker threads must connect to bound methods
     # of QObjects (queued to the receiver's thread), never to lambdas — a
     # lambda has no receiver, so Qt runs it on the worker thread, and touching
     # widgets from there crashes intermittently.
 
-    def _open_text_diff(self, node: NodeResult, rel_path: str) -> None:
+    def _open_diff(self, node: NodeResult, rel_path: str, mode: str = "auto") -> None:
         if self._sides is None:
+            return
+        placeholder = _LoadingTab(rel_path)
+        index = self._tabs.addTab(placeholder, node.name)
+        self._tabs.setCurrentIndex(index)
+        self._start_diff_load(placeholder, rel_path, mode)
+
+    def _start_diff_load(self, target: QWidget, rel_path: str, mode: str) -> None:
+        """``target`` is either a _LoadingTab (first load) or an existing
+        text/hex view being refreshed."""
+        if self._sides is None:
+            return
+        left, right = self._sides
+        worker = DiffLoadWorker(left, right, rel_path, mode)
+        self._pending_diffs[worker] = (target, rel_path)
+        worker.text_ready.connect(self._on_diff_text_ready)
+        worker.hex_ready.connect(self._on_diff_hex_ready)
+        worker.failed.connect(self._on_diff_failed)
+        self._track_thread(
+            start_worker(worker, self, [worker.text_ready, worker.hex_ready, worker.failed])
+        )
+
+    def _pop_pending(self) -> tuple[QWidget | None, str]:
+        return self._pending_diffs.pop(self.sender(), (None, ""))
+
+    def _on_diff_text_ready(self, data) -> None:
+        target, rel_path = self._pop_pending()
+        if target is None:
+            return
+        if isinstance(target, TextCompareView):  # refresh of an existing tab
+            target.on_diff_loaded(data)
             return
         view = TextCompareView(f"Left: {rel_path}", f"Right: {rel_path}")
         view.save_requested.connect(  # emitted on the UI thread (button click)
-            lambda side, data, v=view, rel=rel_path: self._save_text(v, side, rel, data)
+            lambda side, blob, v=view, rel=rel_path: self._save_text(v, side, rel, blob)
         )
         view.refresh_requested.connect(  # emitted on the UI thread
-            lambda v=view, rel=rel_path: self._load_text_diff(v, rel)
+            lambda v=view, rel=rel_path: self._start_diff_load(v, rel, "text")
         )
-        index = self._tabs.addTab(view, node.name)
-        self._tabs.setCurrentIndex(index)
-        self._load_text_diff(view, rel_path)
+        view.set_data(data.left, data.right)
+        self._swap_tab(target, view)
 
-    def _load_text_diff(self, view: TextCompareView, rel_path: str) -> None:
-        if self._sides is None:
-            view.show_error("No comparison is active.")
+    def _on_diff_hex_ready(self, data) -> None:
+        target, rel_path = self._pop_pending()
+        if target is None:
             return
-        left, right = self._sides
-        worker = TextDiffWorker(left, right, rel_path)
-        worker.finished.connect(view.on_diff_loaded)
-        worker.failed.connect(view.show_error)
-        self._track_thread(start_worker(worker, self, [worker.finished, worker.failed]))
+        if isinstance(target, HexCompareView):  # refresh of an existing tab
+            target.on_hex_loaded(data)
+            return
+        view = HexCompareView(f"Left: {rel_path}", f"Right: {rel_path}")
+        view.refresh_requested.connect(  # emitted on the UI thread
+            lambda v=view, rel=rel_path: self._start_diff_load(v, rel, "hex")
+        )
+        view.on_hex_loaded(data)
+        self._swap_tab(target, view)
+
+    def _on_diff_failed(self, message: str) -> None:
+        target, _ = self._pop_pending()
+        if target is not None:
+            target.show_error(message)
+
+    def _swap_tab(self, old: QWidget, new: QWidget) -> None:
+        index = self._tabs.indexOf(old)
+        if index < 0:  # tab was closed while loading
+            new.deleteLater()
+            return
+        label = self._tabs.tabText(index)
+        was_current = self._tabs.currentIndex() == index
+        self._tabs.removeTab(index)
+        self._tabs.insertTab(index, new, label)
+        if was_current:
+            self._tabs.setCurrentIndex(index)
+        old.deleteLater()
 
     def _save_text(self, view: TextCompareView, side: str, rel_path: str, data: bytes) -> None:
         if self._sides is None:

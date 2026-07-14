@@ -11,12 +11,67 @@ import zlib
 from collections import deque
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
+from fnmatch import fnmatchcase
 from pathlib import PurePosixPath
 
 from shankompare.vfs import EntryInfo, FileSystem, VfsError
 
 _CHUNK_SIZE = 64 * 1024
+
+_SIZE_SUFFIXES = {"": 1, "b": 1, "k": 1024, "m": 1024**2, "g": 1024**3}
+
+
+def parse_size(text: str) -> int | None:
+    """Parse a human size like ``"10M"``, ``"500k"``, ``"1024"``; "" -> None."""
+    text = text.strip().lower().removesuffix("ib")
+    if not text:
+        return None
+    number = text
+    suffix = ""
+    if text and text[-1] in "bkmg":
+        number, suffix = text[:-1], text[-1]
+        if suffix == "b":
+            suffix = ""
+    try:
+        value = float(number)
+    except ValueError:
+        raise ValueError(f"not a size: {text!r}") from None
+    if value < 0:
+        raise ValueError(f"not a size: {text!r}")
+    return int(value * _SIZE_SUFFIXES[suffix])
+
+
+@dataclass(frozen=True)
+class ExcludeFilters:
+    """Entries removed from a comparison before alignment.
+
+    ``name_globs`` exclude files *and* folders by name (case-insensitive
+    fnmatch). The size and mtime bounds are include-ranges applied to files
+    only: a file outside the range is excluded; folders always pass them.
+    """
+
+    name_globs: tuple[str, ...] = ()
+    min_size: int | None = None
+    max_size: int | None = None
+    modified_after: datetime | None = None
+    modified_before: datetime | None = None
+
+    def passes(self, entry: EntryInfo) -> bool:
+        name = entry.name.casefold()
+        for pattern in self.name_globs:
+            if fnmatchcase(name, pattern.casefold()):
+                return False
+        if entry.is_dir:
+            return True
+        if self.min_size is not None and entry.size < self.min_size:
+            return False
+        if self.max_size is not None and entry.size > self.max_size:
+            return False
+        if self.modified_after is not None and entry.mtime < self.modified_after:
+            return False
+        return self.modified_before is None or entry.mtime <= self.modified_before
 
 
 class Status(Enum):
@@ -47,6 +102,7 @@ class CompareOptions:
     mtime_tolerance: float = 2.0
     content: ContentMode = ContentMode.NONE
     case_sensitive: bool = True
+    exclude: ExcludeFilters = field(default_factory=ExcludeFilters)
 
 
 @dataclass
@@ -143,6 +199,9 @@ def _scan_dir(
     except VfsError as exc:
         node.error = str(exc)
         return
+
+    left_entries = [e for e in left_entries if options.exclude.passes(e)]
+    right_entries = [e for e in right_entries if options.exclude.passes(e)]
 
     def key(name: str) -> str:
         return name if options.case_sensitive else name.casefold()

@@ -3,9 +3,12 @@
 import dataclasses
 import json
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from platformdirs import user_config_dir
+
+from shankompare.compare import ExcludeFilters
 
 SIDE_LOCAL = "local"
 SIDE_SFTP = "sftp"
@@ -28,6 +31,35 @@ class Session:
     mtime_tolerance: float = 2.0
     content: str = "none"  # ContentMode value
     case_sensitive: bool = True
+    exclude_globs: list[str] = field(default_factory=list)
+    exclude_min_size: int | None = None
+    exclude_max_size: int | None = None
+    exclude_modified_after: str | None = None  # ISO 8601
+    exclude_modified_before: str | None = None
+
+    def exclude_filters(self) -> ExcludeFilters:
+        return ExcludeFilters(
+            name_globs=tuple(self.exclude_globs),
+            min_size=self.exclude_min_size,
+            max_size=self.exclude_max_size,
+            modified_after=_parse_iso(self.exclude_modified_after),
+            modified_before=_parse_iso(self.exclude_modified_before),
+        )
+
+    def set_exclude_filters(self, filters: ExcludeFilters) -> None:
+        self.exclude_globs = list(filters.name_globs)
+        self.exclude_min_size = filters.min_size
+        self.exclude_max_size = filters.max_size
+        self.exclude_modified_after = _format_iso(filters.modified_after)
+        self.exclude_modified_before = _format_iso(filters.modified_before)
+
+
+def _parse_iso(text: str | None) -> datetime | None:
+    return datetime.fromisoformat(text) if text else None
+
+
+def _format_iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value is not None else None
 
 
 def _filtered(cls, data: dict) -> dict:

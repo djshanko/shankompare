@@ -10,12 +10,11 @@ Two modes:
 from dataclasses import replace
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFontDatabase, QTextCursor, QTextFormat
+from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
     QLabel,
-    QPlainTextEdit,
     QPushButton,
     QSpinBox,
     QSplitter,
@@ -39,49 +38,18 @@ from shankompare.compare import (
 )
 from shankompare.compare.text import intraline_spans, split_lines
 
-from .theme import is_dark
+from .panes import (
+    DiffPane,
+    current_line_selection,
+    line_selection,
+    link_scrollbars,
+    span_selection,
+)
+from .panes import (
+    diff_colors as _colors,
+)
 
-_LIGHT = {
-    BlockKind.REPLACE: QColor("#fdecec"),
-    BlockKind.DELETE: QColor("#e7f0fb"),
-    BlockKind.INSERT: QColor("#e8f5e9"),
-    BlockKind.SEPARATOR: QColor("#eeeeee"),
-    "intra": QColor("#f5b5b5"),
-    "pad": QColor("#f0f0f0"),
-}
-_DARK = {
-    BlockKind.REPLACE: QColor("#4a2a2a"),
-    BlockKind.DELETE: QColor("#26384f"),
-    BlockKind.INSERT: QColor("#28402b"),
-    BlockKind.SEPARATOR: QColor("#3a3a3a"),
-    "intra": QColor("#7e3d3d"),
-    "pad": QColor("#333333"),
-}
-
-
-def _colors() -> dict:
-    return _DARK if is_dark() else _LIGHT
-
-
-class _Pane(QPlainTextEdit):
-    def __init__(self) -> None:
-        super().__init__()
-        self.setReadOnly(True)
-        self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        self.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
-        self._apply_interaction_flags()
-
-    def setReadOnly(self, read_only: bool) -> None:  # noqa: N802 (Qt override)
-        super().setReadOnly(read_only)
-        self._apply_interaction_flags()
-
-    def _apply_interaction_flags(self) -> None:
-        # keep a visible, keyboard-movable cursor even while read-only
-        if self.isReadOnly():
-            self.setTextInteractionFlags(
-                Qt.TextInteractionFlag.TextSelectableByMouse
-                | Qt.TextInteractionFlag.TextSelectableByKeyboard
-            )
+_Pane = DiffPane
 
 
 class TextCompareView(QWidget):
@@ -97,7 +65,6 @@ class TextCompareView(QWidget):
         self._blocks: list = []
         self._rows: list[Row] = []
         self._display_rows: list[Row] = []
-        self._syncing = False
         self._updating = False
         self._dirty = {"left": False, "right": False}
         self._diff_selections: dict = {}
@@ -138,7 +105,7 @@ class TextCompareView(QWidget):
 
         self._left_pane = _Pane()
         self._right_pane = _Pane()
-        self._link_scrollbars()
+        link_scrollbars(self._left_pane, self._right_pane)
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
         self._debounce.setInterval(400)
@@ -188,7 +155,7 @@ class TextCompareView(QWidget):
         self._recompute()
 
     def on_diff_loaded(self, data) -> None:
-        """Slot for TextDiffWorker.finished — a bound method of this QObject,
+        """Slot for DiffLoadWorker.text_ready — a bound method of this QObject,
         so Qt queues the call onto the UI thread (a lambda would run on the
         worker thread and crash inside Qt's painting/text machinery)."""
         self.set_data(data.left, data.right)
@@ -346,20 +313,16 @@ class TextCompareView(QWidget):
             left_bg = base if row.left_text is not None else colors["pad"]
             right_bg = base if row.right_text is not None else colors["pad"]
             if left_bg is not None:
-                left_selections.append(self._line_selection(self._left_pane, display_line, left_bg))
+                left_selections.append(line_selection(self._left_pane, display_line, left_bg))
             if right_bg is not None:
-                right_selections.append(
-                    self._line_selection(self._right_pane, display_line, right_bg)
-                )
+                right_selections.append(line_selection(self._right_pane, display_line, right_bg))
             for start, end in row.left_spans:
                 left_selections.append(
-                    self._span_selection(self._left_pane, display_line, start, end, colors["intra"])
+                    span_selection(self._left_pane, display_line, start, end, colors["intra"])
                 )
             for start, end in row.right_spans:
                 right_selections.append(
-                    self._span_selection(
-                        self._right_pane, display_line, start, end, colors["intra"]
-                    )
+                    span_selection(self._right_pane, display_line, start, end, colors["intra"])
                 )
         self._set_diff_selections(left_selections, right_selections)
 
@@ -374,9 +337,9 @@ class TextCompareView(QWidget):
                 continue
             left_bg = colors[BlockKind.REPLACE if block.kind is BlockKind.REPLACE else block.kind]
             for line in range(block.left_start, block.left_end):
-                left_selections.append(self._line_selection(self._left_pane, line, left_bg))
+                left_selections.append(line_selection(self._left_pane, line, left_bg))
             for line in range(block.right_start, block.right_end):
-                right_selections.append(self._line_selection(self._right_pane, line, left_bg))
+                right_selections.append(line_selection(self._right_pane, line, left_bg))
             if block.kind is BlockKind.REPLACE:
                 pairs = min(block.left_end - block.left_start, block.right_end - block.right_start)
                 for k in range(pairs):
@@ -384,11 +347,11 @@ class TextCompareView(QWidget):
                     left_spans, right_spans = intraline_spans(left_lines[i], right_lines[j])
                     for start, end in left_spans:
                         left_selections.append(
-                            self._span_selection(self._left_pane, i, start, end, colors["intra"])
+                            span_selection(self._left_pane, i, start, end, colors["intra"])
                         )
                     for start, end in right_spans:
                         right_selections.append(
-                            self._span_selection(self._right_pane, j, start, end, colors["intra"])
+                            span_selection(self._right_pane, j, start, end, colors["intra"])
                         )
         self._set_diff_selections(left_selections, right_selections)
 
@@ -401,37 +364,8 @@ class TextCompareView(QWidget):
         highlight = self.palette().highlight().color()
         highlight.setAlpha(55)
         for pane, diff_selections in self._diff_selections.items():
-            current = QTextEdit.ExtraSelection()
-            cursor = pane.textCursor()
-            cursor.clearSelection()
-            current.cursor = cursor
-            current.format.setBackground(highlight)
-            current.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
-            pane.setExtraSelections([*diff_selections, current])
-
-    @staticmethod
-    def _line_selection(pane: QPlainTextEdit, line: int, color: QColor) -> QTextEdit.ExtraSelection:
-        selection = QTextEdit.ExtraSelection()
-        block = pane.document().findBlockByNumber(line)
-        selection.cursor = QTextCursor(block)
-        selection.format.setBackground(color)
-        selection.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
-        return selection
-
-    @staticmethod
-    def _span_selection(
-        pane: QPlainTextEdit, line: int, start: int, end: int, color: QColor
-    ) -> QTextEdit.ExtraSelection:
-        selection = QTextEdit.ExtraSelection()
-        block = pane.document().findBlockByNumber(line)
-        length = len(block.text())
-        start, end = min(start, length), min(end, length)
-        cursor = QTextCursor(block)
-        cursor.setPosition(block.position() + start)
-        cursor.setPosition(block.position() + end, QTextCursor.MoveMode.KeepAnchor)
-        selection.cursor = cursor
-        selection.format.setBackground(color)
-        return selection
+            marker = current_line_selection(pane, highlight)
+            pane.setExtraSelections([*diff_selections, marker])
 
     # --- navigation and scrolling ---------------------------------------------------
 
@@ -455,21 +389,3 @@ class TextCompareView(QWidget):
             block = pane.document().findBlockByNumber(min(target, pane.blockCount() - 1))
             pane.setTextCursor(QTextCursor(block))
             pane.centerCursor()
-
-    def _link_scrollbars(self) -> None:
-        pairs = [
-            (self._left_pane.verticalScrollBar(), self._right_pane.verticalScrollBar()),
-            (self._left_pane.horizontalScrollBar(), self._right_pane.horizontalScrollBar()),
-        ]
-        for a, b in pairs:
-            a.valueChanged.connect(lambda value, other=b: self._sync_scroll(other, value))
-            b.valueChanged.connect(lambda value, other=a: self._sync_scroll(other, value))
-
-    def _sync_scroll(self, target, value: int) -> None:
-        if self._syncing:
-            return
-        self._syncing = True
-        try:
-            target.setValue(value)
-        finally:
-            self._syncing = False

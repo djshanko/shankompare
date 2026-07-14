@@ -20,7 +20,7 @@ from .folder_model import _ROOT_INDEX, FilterMode, FolderCompareModel, StatusFil
 
 
 class FolderCompareView(QWidget):
-    open_diff_requested = Signal(object, str)  # (NodeResult, rel_path)
+    open_diff_requested = Signal(object, str, str)  # (NodeResult, rel_path, mode)
     ops_requested = Signal(list)  # list[FileOp]
 
     def __init__(self, parent: QWidget | None = None):
@@ -98,7 +98,7 @@ class FolderCompareView(QWidget):
             return
         node = item.node
         if not node.is_dir and node.left is not None and node.right is not None:
-            self.open_diff_requested.emit(node, str(item.rel_path))
+            self.open_diff_requested.emit(node, str(item.rel_path), "auto")
 
     # --- file operations context menu ---------------------------------------------
 
@@ -123,6 +123,17 @@ class FolderCompareView(QWidget):
         ]
 
         menu = QMenu(self)
+
+        if len(items) == 1 and file_pairs:
+            pair = file_pairs[0]
+            for label, mode in (("Compare as text", "text"), ("Compare as hex", "hex")):
+                action = menu.addAction(label)
+                action.triggered.connect(
+                    lambda _=False, i=pair, m=mode: self.open_diff_requested.emit(
+                        i.node, str(i.rel_path), m
+                    )
+                )
+            menu.addSeparator()
 
         def add(label: str, eligible: list, builder) -> None:
             action = menu.addAction(label)

@@ -31,14 +31,18 @@ Goal: daily-drivable for the primary use case.
 - Inline editing in text compare (Edit mode) with debounced dynamic recomparison; copy-section buttons move the current difference between sides; Save writes back preserving encoding and EOL style.
 - Packaging: PyInstaller one-folder builds (`packaging/shankompare.spec`).
 
-## M4+ — Backlog (future)
+## M4 — Feature updates ✅ (done 2026-07-14, v0.3.0)
+
+- Synchronization commands (mirror left→right, mirror right→left, update both) with a confirmation plan
+- Exclusion filters (name globs, size, mtime) which are also stored in session configuration
+- Binary/hex compare view with automatic binary detection and per-byte highlighting
+- Archive files as folders (`ArchiveFileSystem`, zip/tar, read-only, local or SFTP)
+- In-app user manual and release notes (Help menu)
+
+## M5+ — Backlog (future)
 
 Ordered by expected value, not committed:
 
-- Synchronization commands (mirror left→right, update both)
-- Exclusion filters (name globs, size, mtime)
-- Binary/hex compare view
-- Archive files as folders (`ArchiveFileSystem`)
 - FTP / FTPS backends; SSH agent + keyboard-interactive auth; resumable transfers
 - Unix patch file viewer
 - Syntax highlighting and find & replace in text compare

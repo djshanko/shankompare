@@ -89,15 +89,15 @@ def test_folder_view_filter_hides_same(app, folder_pair):
 
 
 def _start_text_worker_without_local_ref(parent, left, right, results, errors):
-    """Mimics MainWindow._open_text_diff: no reference to the worker survives
+    """Mimics MainWindow._start_diff_load: no reference to the worker survives
     this function, which is exactly what regressed once (the worker was
     garbage-collected before its thread ran it)."""
-    from shankompare.ui.worker import TextDiffWorker, start_worker
+    from shankompare.ui.worker import DiffLoadWorker, start_worker
 
-    worker = TextDiffWorker(LocalSide(str(left)), LocalSide(str(right)), "a.txt")
-    worker.finished.connect(results.append)
+    worker = DiffLoadWorker(LocalSide(str(left)), LocalSide(str(right)), "a.txt")
+    worker.text_ready.connect(results.append)
     worker.failed.connect(errors.append)
-    return start_worker(worker, parent, [worker.finished, worker.failed])
+    return start_worker(worker, parent, [worker.text_ready, worker.hex_ready, worker.failed])
 
 
 def test_text_worker_survives_gc_through_real_thread(app, tmp_path):
@@ -149,7 +149,7 @@ def test_diff_result_is_delivered_on_the_ui_thread(app, tmp_path):
     worker thread, crashing the app intermittently on local↔SFTP diffs."""
     from PySide6.QtCore import QEventLoop, QThread, QTimer
 
-    from shankompare.ui.worker import TextDiffWorker, start_worker
+    from shankompare.ui.worker import DiffLoadWorker, start_worker
 
     class ThreadRecordingView(TextCompareView):
         delivery_thread = None
@@ -166,10 +166,10 @@ def test_diff_result_is_delivered_on_the_ui_thread(app, tmp_path):
     (right / "a.txt").write_text("two")
 
     view = ThreadRecordingView("l", "r")
-    worker = TextDiffWorker(LocalSide(str(left)), LocalSide(str(right)), "a.txt")
-    worker.finished.connect(view.on_diff_loaded)
+    worker = DiffLoadWorker(LocalSide(str(left)), LocalSide(str(right)), "a.txt")
+    worker.text_ready.connect(view.on_diff_loaded)
     worker.failed.connect(view.show_error)
-    thread = start_worker(worker, view, [worker.finished, worker.failed])
+    thread = start_worker(worker, view, [worker.text_ready, worker.hex_ready, worker.failed])
 
     loop = QEventLoop()
     thread.finished.connect(loop.quit)

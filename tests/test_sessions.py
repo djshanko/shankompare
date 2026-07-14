@@ -48,6 +48,41 @@ def test_session_unknown_keys_ignored(tmp_path):
     ]
 
 
+def test_exclude_filters_roundtrip(tmp_path):
+    from datetime import UTC, datetime
+
+    from shankompare.compare import ExcludeFilters
+
+    filters = ExcludeFilters(
+        name_globs=("*.log", "__pycache__"),
+        min_size=10,
+        max_size=1024**2,
+        modified_after=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    session = Session(
+        name="filtered",
+        left=SessionSide(SIDE_LOCAL, "C:/a"),
+        right=SessionSide(SIDE_LOCAL, "D:/b"),
+    )
+    session.set_exclude_filters(filters)
+    store = SessionStore(tmp_path)
+    store.save([session])
+    loaded = store.load()[0]
+    assert loaded.exclude_filters() == filters
+
+
+def test_session_without_filter_fields_defaults_to_no_filters(tmp_path):
+    store = SessionStore(tmp_path)
+    (tmp_path / "sessions.json").write_text(
+        '[{"name": "old", "left": {"kind": "local", "path": "x"},'
+        ' "right": {"kind": "local", "path": "y"}}]',
+        encoding="utf-8",
+    )
+    from shankompare.compare import ExcludeFilters
+
+    assert store.load()[0].exclude_filters() == ExcludeFilters()
+
+
 def test_settings_roundtrip(tmp_path):
     store = SettingsStore(tmp_path)
     assert store.load() == AppSettings()  # defaults when missing

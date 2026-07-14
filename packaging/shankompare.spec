@@ -9,7 +9,11 @@ a = Analysis(
     ["launcher.py"],
     pathex=["../src"],
     binaries=[],
-    datas=[("../assets/icons", "assets/icons")],
+    datas=[
+        ("../assets/icons", "assets/icons"),
+        ("../docs/MANUAL.md", "docs"),
+        ("../docs/RELEASE-NOTES.md", "docs"),
+    ],
     hiddenimports=["keyring.backends.Windows", "keyring.backends.SecretService"],
     excludes=["tkinter"],
     noarchive=False,
