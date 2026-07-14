@@ -9,7 +9,7 @@ a = Analysis(
     ["launcher.py"],
     pathex=["../src"],
     binaries=[],
-    datas=[],
+    datas=[("../assets/icons", "assets/icons")],
     hiddenimports=["keyring.backends.Windows", "keyring.backends.SecretService"],
     excludes=["tkinter"],
     noarchive=False,
@@ -24,4 +24,5 @@ exe = EXE(
     name="shankompare",
     console=False,
     upx=False,
+    icon="../assets/icons/shankompare.ico",
 )
