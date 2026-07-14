@@ -1,9 +1,9 @@
-"""Main window: pick two sides, run a comparison, show the result tree."""
+"""Main window: side pickers, compare options, folder tab + text compare tabs."""
 
 from dataclasses import replace
 
-from PySide6.QtCore import Qt, QThread
-from PySide6.QtGui import QBrush, QCloseEvent, QColor
+from PySide6.QtCore import QThread
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -16,45 +16,37 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QTreeWidget,
-    QTreeWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from shankompare.compare import CompareOptions, ContentMode, NodeResult, Status
+from shankompare.compare import CompareOptions, ContentMode, NodeResult
 from shankompare.sessions import AUTH_PASSWORD, ConnectionProfile, ProfileStore
-from shankompare.vfs import EntryInfo
 
+from .folder_view import FolderCompareView
 from .profile_dialog import ProfileDialog
-from .worker import CompareWorker, LocalSide, SftpSide, SideSpec
-
-_STATUS_LABEL = {
-    Status.SAME: "Same",
-    Status.DIFFERENT: "Different",
-    Status.LEFT_ONLY: "Left only",
-    Status.RIGHT_ONLY: "Right only",
-    Status.UNKNOWN: "Unknown",
-}
-
-_STATUS_COLOR = {
-    Status.DIFFERENT: QColor("#c62828"),
-    Status.LEFT_ONLY: QColor("#1565c0"),
-    Status.RIGHT_ONLY: QColor("#2e7d32"),
-    Status.UNKNOWN: QColor("#9e6a03"),
-}
+from .remote_browse import RemoteBrowseDialog
+from .text_compare import TextCompareView
+from .worker import (
+    CompareWorker,
+    LocalSide,
+    SftpSide,
+    SideSpec,
+    TextDiffWorker,
+    start_worker,
+)
 
 
-def _fmt_size(entry: EntryInfo | None) -> str:
-    if entry is None or entry.is_dir:
-        return ""
-    return f"{entry.size:,}"
-
-
-def _fmt_mtime(entry: EntryInfo | None) -> str:
-    if entry is None:
-        return ""
-    return entry.mtime.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+def prompt_secret(parent: QWidget, profile: ConnectionProfile) -> tuple[str | None, bool]:
+    """Ask for a password; returns (secret, ok)."""
+    secret, ok = QInputDialog.getText(
+        parent,
+        "Password required",
+        f"Password for {profile.username}@{profile.host}:",
+        QLineEdit.EchoMode.Password,
+    )
+    return (secret or None), ok
 
 
 class SidePicker(QGroupBox):
@@ -98,32 +90,46 @@ class SidePicker(QGroupBox):
     def path(self) -> str:
         return self._path.text().strip()
 
+    def set_path(self, path: str) -> None:
+        self._path.setText(path)
+
     def _on_source_changed(self, _index: int) -> None:
         profile = self.selected_profile()
         if profile is None:
-            self._browse.setEnabled(True)
             self._path.setPlaceholderText("Local folder path")
         else:
-            self._browse.setEnabled(False)
             self._path.setPlaceholderText("Remote path")
             self._path.setText(profile.initial_path)
 
     def _on_browse(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Select folder", self.path())
-        if path:
-            self._path.setText(path)
+        profile = self.selected_profile()
+        if profile is None:
+            path = QFileDialog.getExistingDirectory(self, "Select folder", self.path())
+            if path:
+                self._path.setText(path)
+            return
+        secret = ProfileStore.get_secret(profile.name)
+        if secret is None and profile.auth_method == AUTH_PASSWORD:
+            secret, ok = prompt_secret(self, profile)
+            if not ok:
+                return
+        dialog = RemoteBrowseDialog(profile, secret, start_path=self.path(), parent=self)
+        if dialog.exec() and dialog.selected_path:
+            self._path.setText(dialog.selected_path)
 
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("shankompare")
-        self.resize(1000, 700)
+        self.resize(1100, 750)
 
         self._store = ProfileStore()
         self._profiles = self._store.load()
-        self._thread: QThread | None = None
-        self._worker: CompareWorker | None = None
+        self._compare_thread: QThread | None = None
+        self._compare_worker: CompareWorker | None = None
+        self._text_threads: list[QThread] = []
+        self._sides: tuple[SideSpec, SideSpec] | None = None
 
         self._left_picker = SidePicker("Left side")
         self._right_picker = SidePicker("Right side")
@@ -152,13 +158,8 @@ class MainWindow(QMainWindow):
         self._cancel_btn.setEnabled(False)
         self._cancel_btn.clicked.connect(self._cancel)
 
-        self._tree = QTreeWidget()
-        self._tree.setHeaderLabels(
-            ["Name", "Size (L)", "Modified (L)", "Size (R)", "Modified (R)", "Status"]
-        )
-        self._tree.setColumnWidth(0, 320)
-        self._tree.setColumnWidth(2, 150)
-        self._tree.setColumnWidth(4, 150)
+        self._folder_view = FolderCompareView()
+        self._folder_view.open_diff_requested.connect(self._open_text_diff)
 
         sides_row = QHBoxLayout()
         sides_row.addWidget(self._left_picker)
@@ -178,18 +179,27 @@ class MainWindow(QMainWindow):
         options_row.addWidget(self._compare_btn)
         options_row.addWidget(self._cancel_btn)
 
-        central = QWidget()
-        layout = QVBoxLayout(central)
-        layout.addLayout(sides_row)
-        layout.addLayout(options_row)
-        layout.addWidget(self._tree, 1)
-        self.setCentralWidget(central)
+        folders_tab = QWidget()
+        folders_layout = QVBoxLayout(folders_tab)
+        folders_layout.addLayout(sides_row)
+        folders_layout.addLayout(options_row)
+        folders_layout.addWidget(self._folder_view, 1)
+
+        self._tabs = QTabWidget()
+        self._tabs.setTabsClosable(True)
+        self._tabs.tabCloseRequested.connect(self._close_tab)
+        self._tabs.addTab(folders_tab, "Folders")
+        # the folders tab itself is not closable
+        self._tabs.tabBar().setTabButton(0, self._tabs.tabBar().ButtonPosition.RightSide, None)
+        self._tabs.tabBar().setTabButton(0, self._tabs.tabBar().ButtonPosition.LeftSide, None)
+
+        self.setCentralWidget(self._tabs)
         self.statusBar().showMessage("Ready")
 
         self._left_picker.set_profiles(self._profiles)
         self._right_picker.set_profiles(self._profiles)
 
-    # --- profiles -----------------------------------------------------------
+    # --- profiles -------------------------------------------------------------
 
     def _edit_profiles(self) -> None:
         dialog = ProfileDialog(self._store, self._profiles, self)
@@ -198,7 +208,7 @@ class MainWindow(QMainWindow):
             self._left_picker.set_profiles(self._profiles)
             self._right_picker.set_profiles(self._profiles)
 
-    # --- running a comparison -------------------------------------------------
+    # --- folder comparison ------------------------------------------------------
 
     def _options(self) -> CompareOptions:
         return CompareOptions(
@@ -220,18 +230,13 @@ class MainWindow(QMainWindow):
         profile = replace(profile, initial_path=picker.path() or profile.initial_path)
         secret = ProfileStore.get_secret(profile.name)
         if secret is None and profile.auth_method == AUTH_PASSWORD:
-            secret, ok = QInputDialog.getText(
-                self,
-                "Password required",
-                f"Password for {profile.username}@{profile.host}:",
-                QLineEdit.EchoMode.Password,
-            )
+            secret, ok = prompt_secret(self, profile)
             if not ok:
                 return None
-        return SftpSide(profile, secret or None)
+        return SftpSide(profile, secret)
 
     def _start(self) -> None:
-        if self._thread is not None:
+        if self._compare_thread is not None:
             return
         left = self._side_spec(self._left_picker)
         if left is None:
@@ -239,94 +244,123 @@ class MainWindow(QMainWindow):
         right = self._side_spec(self._right_picker)
         if right is None:
             return
+        self._launch(left, right)
 
-        self._worker = CompareWorker(left, right, self._options())
-        self._thread = QThread(self)
-        self._worker.moveToThread(self._thread)
-        self._thread.started.connect(self._worker.run)
-        self._worker.progress.connect(self.statusBar().showMessage)
-        self._worker.finished.connect(self._on_finished)
-        self._worker.failed.connect(self._on_failed)
+    def _launch(self, left: SideSpec, right: SideSpec) -> None:
+        self._sides = (left, right)
+        self._folder_view.compare_started()
+
+        worker = CompareWorker(left, right, self._options())
+        worker.progress.connect(self.statusBar().showMessage)
+        worker.dir_scanned.connect(self._folder_view.on_dir_scanned)
+        worker.content_checked.connect(self._folder_view.on_content_checked)
+        worker.finished.connect(self._on_compare_finished)
+        worker.failed.connect(self._on_compare_failed)
+        self._compare_worker = worker
+        self._compare_thread = start_worker(worker, self, [worker.finished, worker.failed])
+        self._compare_thread.finished.connect(self._on_compare_thread_done)
         self._compare_btn.setEnabled(False)
         self._cancel_btn.setEnabled(True)
-        self._thread.start()
 
     def _cancel(self) -> None:
-        if self._worker is not None:
-            self._worker.cancel_event.set()
+        if self._compare_worker is not None:
+            self._compare_worker.cancel_event.set()
             self.statusBar().showMessage("Cancelling…")
 
-    def _on_finished(self, root: NodeResult | None) -> None:
+    def _on_compare_finished(self, root: NodeResult | None) -> None:
         if root is not None:
-            self._populate(root)
+            self._folder_view.set_result(root)
             self.statusBar().showMessage("Comparison finished.")
         else:
             self.statusBar().showMessage("Comparison cancelled.")
-        self._teardown()
 
-    def _on_failed(self, message: str) -> None:
-        QMessageBox.critical(self, "Comparison failed", message)
+    def _on_compare_failed(self, kind: str, side: str, message: str) -> None:
+        if kind == "auth" and self._retry_auth(side, message):
+            return
+        if kind == "connection":
+            answer = QMessageBox.question(
+                self,
+                "Connection failed",
+                f"{message}\n\nRetry the comparison?",
+                QMessageBox.StandardButton.Retry | QMessageBox.StandardButton.Cancel,
+            )
+            if answer == QMessageBox.StandardButton.Retry and self._sides is not None:
+                left, right = self._sides
+                self._relaunch_when_idle(left, right)
+                return
+        else:
+            QMessageBox.critical(self, "Comparison failed", message)
         self.statusBar().showMessage("Comparison failed.")
-        self._teardown()
 
-    def _teardown(self) -> None:
-        if self._thread is not None:
-            self._thread.quit()
-            self._thread.wait()
-            self._thread.deleteLater()
-        if self._worker is not None:
-            self._worker.deleteLater()
-        self._thread = None
-        self._worker = None
+    def _retry_auth(self, side: str, message: str) -> bool:
+        """Re-prompt the failing side's password and restart. True if retrying."""
+        if self._sides is None or side not in ("left", "right"):
+            QMessageBox.critical(self, "Authentication failed", message)
+            return False
+        left, right = self._sides
+        spec = left if side == "left" else right
+        if not isinstance(spec, SftpSide):
+            QMessageBox.critical(self, "Authentication failed", message)
+            return False
+        QMessageBox.warning(self, "Authentication failed", message)
+        # a stored secret that failed is stale — drop it
+        ProfileStore.delete_secret(spec.profile.name)
+        secret, ok = prompt_secret(self, spec.profile)
+        if not ok:
+            return False
+        new_spec = SftpSide(spec.profile, secret)
+        if side == "left":
+            left = new_spec
+        else:
+            right = new_spec
+        self._relaunch_when_idle(left, right)
+        return True
+
+    def _relaunch_when_idle(self, left: SideSpec, right: SideSpec) -> None:
+        """Restart once the previous worker thread has fully wound down."""
+        thread = self._compare_thread
+        if thread is not None and thread.isRunning():
+            thread.finished.connect(lambda: self._launch(left, right))
+        else:
+            self._launch(left, right)
+
+    def _on_compare_thread_done(self) -> None:
+        self._compare_thread = None
+        self._compare_worker = None
         self._compare_btn.setEnabled(True)
         self._cancel_btn.setEnabled(False)
 
+    # --- text compare tabs ---------------------------------------------------------
+
+    def _open_text_diff(self, node: NodeResult, rel_path: str) -> None:
+        if self._sides is None:
+            return
+        left, right = self._sides
+        view = TextCompareView(f"Left: {rel_path}", f"Right: {rel_path}")
+        index = self._tabs.addTab(view, node.name)
+        self._tabs.setCurrentIndex(index)
+
+        worker = TextDiffWorker(left, right, rel_path)
+        worker.finished.connect(lambda data, v=view: v.set_data(data.left, data.right))
+        worker.failed.connect(lambda message, v=view: v.show_error(message))
+        thread = start_worker(worker, self, [worker.finished, worker.failed])
+        self._text_threads.append(thread)
+        thread.finished.connect(lambda t=thread: self._text_threads.remove(t))
+
+    def _close_tab(self, index: int) -> None:
+        if index == 0:
+            return
+        widget = self._tabs.widget(index)
+        self._tabs.removeTab(index)
+        widget.deleteLater()
+
+    # --- shutdown -------------------------------------------------------------------
+
     def closeEvent(self, event: QCloseEvent) -> None:
-        if self._worker is not None:
-            self._worker.cancel_event.set()
-        if self._thread is not None:
-            self._thread.quit()
-            self._thread.wait(3000)
+        if self._compare_worker is not None:
+            self._compare_worker.cancel_event.set()
+        for thread in [self._compare_thread, *self._text_threads]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait(3000)
         event.accept()
-
-    # --- result tree ------------------------------------------------------------
-
-    def _populate(self, root: NodeResult) -> None:
-        self._tree.clear()
-        for child in root.children:
-            item = self._make_item(child)
-            self._tree.addTopLevelItem(item)
-            self._expand_diffs(item, child)
-
-    def _make_item(self, node: NodeResult) -> QTreeWidgetItem:
-        status_text = _STATUS_LABEL[node.status]
-        if node.error:
-            status_text += " ⚠"
-        item = QTreeWidgetItem(
-            [
-                node.name,
-                _fmt_size(node.left),
-                _fmt_mtime(node.left),
-                _fmt_size(node.right),
-                _fmt_mtime(node.right),
-                status_text,
-            ]
-        )
-        color = _STATUS_COLOR.get(node.status)
-        if color is not None:
-            brush = QBrush(color)
-            for col in range(item.columnCount()):
-                item.setForeground(col, brush)
-        if node.error:
-            item.setToolTip(5, node.error)
-        item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight)
-        item.setTextAlignment(3, Qt.AlignmentFlag.AlignRight)
-        for child in node.children:
-            item.addChild(self._make_item(child))
-        return item
-
-    def _expand_diffs(self, item: QTreeWidgetItem, node: NodeResult) -> None:
-        if node.is_dir and node.status is not Status.SAME:
-            item.setExpanded(True)
-        for i, child in enumerate(node.children):
-            self._expand_diffs(item.child(i), child)

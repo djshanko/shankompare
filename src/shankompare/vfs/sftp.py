@@ -121,6 +121,11 @@ class SftpFileSystem(FileSystem):
         with _translate():
             self._sftp.rename(self._full(src), self._full(dst))
 
+    def resolve(self, path: str) -> str:
+        """Server-absolute form of ``path`` (SFTP realpath). Used for browsing."""
+        with _translate():
+            return self._sftp.normalize(path)
+
     def close(self) -> None:
         try:
             self._sftp.close()

@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (
 
 from shankompare.sessions import AUTH_KEY, AUTH_PASSWORD, ConnectionProfile, ProfileStore
 
+from .remote_browse import RemoteBrowseDialog
+
 
 class ProfileDialog(QDialog):
     """Edits a working copy of the profile list; saves on OK, discards on Cancel.
@@ -51,6 +53,9 @@ class ProfileDialog(QDialog):
         key_browse.setFixedWidth(30)
         self._initial_path = QLineEdit()
         self._initial_path.setPlaceholderText(".")
+        path_browse = QPushButton("…")
+        path_browse.setFixedWidth(30)
+        path_browse.setToolTip("Browse the server for the initial path")
         password_btn = QPushButton("Set password / passphrase…")
 
         key_row = QHBoxLayout()
@@ -67,7 +72,13 @@ class ProfileDialog(QDialog):
         form.addRow("Username:", self._username)
         form.addRow("Authentication:", self._auth)
         form.addRow("Key file:", key_widget)
-        form.addRow("Initial path:", self._initial_path)
+        path_row = QHBoxLayout()
+        path_row.addWidget(self._initial_path)
+        path_row.addWidget(path_browse)
+        path_widget = QWidget()
+        path_widget.setLayout(path_row)
+        path_row.setContentsMargins(0, 0, 0, 0)
+        form.addRow("Initial path:", path_widget)
         form.addRow("", password_btn)
 
         left_col = QVBoxLayout()
@@ -94,6 +105,7 @@ class ProfileDialog(QDialog):
         new_btn.clicked.connect(self._on_new)
         delete_btn.clicked.connect(self._on_delete)
         key_browse.clicked.connect(self._on_browse_key)
+        path_browse.clicked.connect(self._on_browse_remote)
         password_btn.clicked.connect(self._on_set_password)
         self._list.currentRowChanged.connect(self._on_row_changed)
 
@@ -198,6 +210,37 @@ class ProfileDialog(QDialog):
         path, _ = QFileDialog.getOpenFileName(self, "Select private key file")
         if path:
             self._key_file.setText(path)
+
+    def _form_profile(self) -> ConnectionProfile:
+        """The profile as currently described by the form (uncommitted)."""
+        return ConnectionProfile(
+            name=self._name.text().strip(),
+            host=self._host.text().strip(),
+            port=self._port.value(),
+            username=self._username.text().strip(),
+            auth_method=self._auth.currentData(),
+            key_file=self._key_file.text().strip() or None,
+            initial_path=self._initial_path.text().strip() or ".",
+        )
+
+    def _on_browse_remote(self) -> None:
+        profile = self._form_profile()
+        if not profile.host:
+            return
+        secret = self._store.get_secret(profile.name) if profile.name else None
+        if secret is None and profile.auth_method == AUTH_PASSWORD:
+            secret, ok = QInputDialog.getText(
+                self,
+                "Password required",
+                f"Password for {profile.username}@{profile.host}:",
+                QLineEdit.EchoMode.Password,
+            )
+            if not ok:
+                return
+            secret = secret or None
+        dialog = RemoteBrowseDialog(profile, secret, start_path=profile.initial_path, parent=self)
+        if dialog.exec() and dialog.selected_path:
+            self._initial_path.setText(dialog.selected_path)
 
     def _on_set_password(self) -> None:
         name = self._name.text().strip()

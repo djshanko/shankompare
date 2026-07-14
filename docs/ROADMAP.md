@@ -13,7 +13,7 @@ Goal: a comparison works end to end, even if the UI is bare.
 - Minimal UI: main window, pick two sides (local path or SFTP profile), run compare on a worker thread, show results in a basic colored tree.
 - Tests: VFS contract test suite run against `LocalFileSystem` (and against a fake in-memory FS used by comparer tests); comparer unit tests for every status and criteria combination.
 
-## M2 — Full v1 UI
+## M2 — Full v1 UI ✅ (done 2026-07-14)
 
 Goal: daily-drivable for the primary use case.
 
