@@ -71,6 +71,10 @@ class _SideFailure(Exception):
 def start_worker(worker: QObject, parent: QObject, done_signals: list[Signal]) -> QThread:
     """Move ``worker`` to a fresh QThread wired for automatic teardown."""
     thread = QThread(parent)
+    # A moved-to-thread QObject must be parentless, so nothing owns the Python
+    # wrapper; anchor it to the thread or it is garbage-collected (killing the
+    # C++ object and every connection) before run() ever fires.
+    thread._worker = worker
     worker.moveToThread(thread)
     thread.started.connect(worker.run)
     for signal in done_signals:

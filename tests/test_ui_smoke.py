@@ -88,6 +88,49 @@ def test_folder_view_filter_hides_same(app, folder_pair):
     assert names == {"only-left.txt", "sub"}
 
 
+def _start_text_worker_without_local_ref(parent, left, right, results, errors):
+    """Mimics MainWindow._open_text_diff: no reference to the worker survives
+    this function, which is exactly what regressed once (the worker was
+    garbage-collected before its thread ran it)."""
+    from shankompare.ui.worker import TextDiffWorker, start_worker
+
+    worker = TextDiffWorker(LocalSide(str(left)), LocalSide(str(right)), "a.txt")
+    worker.finished.connect(results.append)
+    worker.failed.connect(errors.append)
+    return start_worker(worker, parent, [worker.finished, worker.failed])
+
+
+def test_text_worker_survives_gc_through_real_thread(app, tmp_path):
+    import gc
+
+    from PySide6.QtCore import QEventLoop, QObject, QTimer
+
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    left.mkdir()
+    right.mkdir()
+    (left / "a.txt").write_text("hello left")
+    (right / "a.txt").write_text("hello right")
+
+    parent = QObject()
+    results: list = []
+    errors: list = []
+    thread = _start_text_worker_without_local_ref(parent, left, right, results, errors)
+    gc.collect()  # would kill an unanchored worker
+
+    loop = QEventLoop()
+    thread.finished.connect(loop.quit)
+    QTimer.singleShot(5000, loop.quit)  # safety timeout
+    if not thread.isFinished():
+        loop.exec()
+    thread.wait(5000)
+
+    assert not errors
+    assert len(results) == 1
+    assert results[0].left.text == "hello left"
+    assert results[0].right.text == "hello right"
+
+
 def test_text_compare_view_renders(app):
     view = TextCompareView("left.txt", "right.txt")
     left = decode_bytes(b"one\ntwo\nthree\n")
