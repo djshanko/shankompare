@@ -36,3 +36,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# QT_QPA_PLATFORM must be set before PySide6 is imported
+"tests/test_ui_smoke.py" = ["E402"]

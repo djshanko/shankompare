@@ -2,10 +2,9 @@
 
 
 def main() -> None:
-    raise SystemExit(
-        "shankompare: the GUI is not implemented yet (milestone M1 in progress). "
-        "Run 'pytest' to exercise the core layers."
-    )
+    from shankompare.ui.app import run
+
+    raise SystemExit(run())
 
 
 if __name__ == "__main__":

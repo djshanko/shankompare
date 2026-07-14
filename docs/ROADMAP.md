@@ -2,7 +2,7 @@
 
 Milestones build on each other; each ends in something runnable. Tags here match docs/REQUIREMENTS.md ([v1] = M1–M2, [v1.x] = M3, [future] = M4+).
 
-## M1 — Skeleton and core engine
+## M1 — Skeleton and core engine ✅ (done 2026-07-14)
 
 Goal: a comparison works end to end, even if the UI is bare.
 

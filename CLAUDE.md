@@ -2,7 +2,7 @@
 
 Cross-platform (Windows + Ubuntu) file/folder comparison tool, built as a lighter-weight personal replacement for Beyond Compare 5. Primary use case: side-by-side comparison between local folders and SFTP servers, plus text file diff.
 
-**Current status:** documentation phase complete; no application code yet. Next step is milestone M1 (see docs/ROADMAP.md).
+**Current status:** milestone M1 complete — VFS layer (local + SFTP + in-memory), folder compare engine, connection profiles, and a minimal working GUI. Next step is milestone M2 (see docs/ROADMAP.md).
 
 ## Tech Stack
 

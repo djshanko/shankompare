@@ -24,7 +24,14 @@ Folder synchronization and file operations, saved sessions, dark mode, binary/he
 
 ## Quick Start
 
-> Not yet available — the project is in the documentation/design phase. Setup instructions will land with milestone M1. Developers: see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+```
+python -m venv .venv
+.venv\Scripts\Activate.ps1        # Windows;  Ubuntu: source .venv/bin/activate
+pip install -e .
+python -m shankompare
+```
+
+Developers: see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## License
 
