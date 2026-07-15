@@ -47,12 +47,16 @@ class HexCompareView(QWidget):
         self._context.setRange(0, 100)
         self._context.setValue(2)
         self._context.setPrefix("context ")
+        self._context.setToolTip(
+            "Unchanged rows to keep around each difference (only differences mode)"
+        )
+        self._context.setEnabled(False)
         refresh_btn = QPushButton("Refresh")
         refresh_btn.setToolTip("Reload both files from disk / server")
         prev_btn = QPushButton("◀ Prev")
         next_btn = QPushButton("Next ▶")
 
-        self._only_diff.toggled.connect(self._render)
+        self._only_diff.toggled.connect(self._on_only_diff_toggled)
         self._context.valueChanged.connect(self._render)
         refresh_btn.clicked.connect(self._on_refresh_clicked)
         prev_btn.clicked.connect(lambda: self._goto_diff(-1))
@@ -107,6 +111,10 @@ class HexCompareView(QWidget):
     def _on_refresh_clicked(self) -> None:
         self._status.setText("Reloading…")
         self.refresh_requested.emit()
+
+    def _on_only_diff_toggled(self, only_diff: bool) -> None:
+        self._context.setEnabled(only_diff)
+        self._render()
 
     # --- rendering -----------------------------------------------------------------
 

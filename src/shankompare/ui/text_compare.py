@@ -80,6 +80,10 @@ class TextCompareView(QWidget):
         self._context.setRange(0, 100)
         self._context.setValue(3)
         self._context.setPrefix("context ")
+        self._context.setToolTip(
+            "Unchanged lines to keep around each difference (only differences mode)"
+        )
+        self._context.setEnabled(False)
         copy_rtl_btn = QPushButton("◀ Copy section")
         copy_ltr_btn = QPushButton("Copy section ▶")
         self._save_left = QPushButton("Save left")
@@ -93,7 +97,7 @@ class TextCompareView(QWidget):
 
         self._edit_check.toggled.connect(self._on_edit_toggled)
         self._ignore_ws.toggled.connect(self._recompute)
-        self._only_diff.toggled.connect(self._render)
+        self._only_diff.toggled.connect(self._on_only_diff_toggled)
         self._context.valueChanged.connect(self._render)
         copy_ltr_btn.clicked.connect(lambda: self._copy_section("ltr"))
         copy_rtl_btn.clicked.connect(lambda: self._copy_section("rtl"))
@@ -191,15 +195,19 @@ class TextCompareView(QWidget):
         self._rows = align_rows(self._left_data.text, self._right_data.text, self._blocks)
         self._render()
 
+    def _on_only_diff_toggled(self, only_diff: bool) -> None:
+        self._context.setEnabled(only_diff and not self.edit_mode)
+        self._render()
+
     # --- editing ---------------------------------------------------------------
 
     def _on_edit_toggled(self, editing: bool) -> None:
         if self._left_data is None:
             return
         self._only_diff.setEnabled(not editing)
-        self._context.setEnabled(not editing)
         if editing:
             self._only_diff.setChecked(False)
+        self._context.setEnabled(not editing and self._only_diff.isChecked())
         self._left_pane.setReadOnly(not editing)
         self._right_pane.setReadOnly(not editing)
         self._render()
