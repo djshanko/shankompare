@@ -7,6 +7,8 @@ name = "shankompare"
 version = "0.3.1"
 description = "Cross-platform folder and file comparison tool with SFTP support"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "PySide6>=6.8",

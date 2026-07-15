@@ -41,4 +41,4 @@ Developers: see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## License
 
-TBD (MIT suggested).
+Released under the [MIT License](LICENSE).

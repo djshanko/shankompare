@@ -366,7 +366,8 @@ class MainWindow(QMainWindow):
             "About shankompare",
             f"<b>shankompare {__version__}</b><br>"
             "Cross-platform folder and file comparison with SFTP support.<br>"
-            "See Help → User Manual to get started.",
+            "See Help → User Manual to get started.<br><br>"
+            "Released under the MIT License.",
         )
 
     def _set_theme(self, theme: str) -> None:
