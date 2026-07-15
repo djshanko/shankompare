@@ -1,6 +1,6 @@
 # shankompare — User Manual
 
-shankompare compares folders and files side by side — between local disks, SFTP servers, and archive files — and lets you copy, delete, edit, and synchronize the differences. This manual covers version 0.3.
+shankompare compares folders and files side by side — between local disks, SFTP servers, and archive files — and lets you copy, delete, edit, and synchronize the differences. This manual covers version 0.3.1.
 
 ## 1. Getting started
 
@@ -30,6 +30,8 @@ Two files with the same name count as *different* when any enabled criterion say
 ## 4. Working with results
 
 - **Show** dropdown filters the tree (differences only, orphans, modified).
+- **Refresh** re-scans the sides but only re-reads content for files whose size or modified time changed since the last comparison — much faster than a full **Compare** on large or remote trees. File operations (copy/delete/…) use this same fast refresh when the queue finishes, so only the files they touched are re-checked.
+- **Expand all / Collapse all** open or close every folder in the tree.
 - **Prev/Next diff** jump between differing files.
 - **Double-click** a file pair to open it in a compare tab — text or hex is chosen automatically. Right-click → *Compare as text* / *Compare as hex* to force one.
 - **Right-click** offers file operations: copy to the other side, delete, rename, copy timestamp. Multi-select works. Operations run in a background queue with progress in the status bar, and the comparison re-runs when the queue finishes. Deletes always ask first.
@@ -47,7 +49,7 @@ Every command shows its full plan — operation counts, the first items, and any
 
 ## 6. Text compare
 
-Side-by-side view with changed lines shaded and the changed characters within them darker. The bar shows each file's encoding and line-ending style.
+Side-by-side view with changed lines shaded and the changed characters within them darker. A line-number gutter down each pane shows the real source line numbers (blank on padding rows where one side has no matching line). The bar shows each file's encoding and line-ending style.
 
 - **Only differences** hides unchanged regions (adjustable context).
 - **Ignore whitespace** ignores leading/trailing whitespace when matching lines.
@@ -75,4 +77,4 @@ The **Session** menu saves the current setup — both sides, all criteria, and e
 - **Connection lost** — you're offered a Retry.
 - **A folder shows “Unknown ⚠”** — it couldn't be read (usually permissions); hover for the exact error. The rest of the comparison is unaffected.
 - **File too large** — text compare stops at 32 MiB, hex at 2 MiB, archives at 256 MiB.
-- **Everything looks stale** — file operations re-compare automatically, but external changes don't; click **Compare** again (or **Refresh** inside a compare tab).
+- **Everything looks stale** — file operations re-compare automatically, but external changes don't; click **Refresh** in the folder tab to re-check only what changed, **Compare** for a full re-scan, or **Refresh** inside a compare tab.

@@ -277,6 +277,7 @@ class MainWindow(QMainWindow):
         self._folder_view = FolderCompareView()
         self._folder_view.open_diff_requested.connect(self._open_diff)
         self._folder_view.ops_requested.connect(self._enqueue_ops)
+        self._folder_view.refresh_requested.connect(self._refresh)
 
         sides_row = QHBoxLayout()
         sides_row.addWidget(self._left_picker)
@@ -495,11 +496,18 @@ class MainWindow(QMainWindow):
             return
         self._launch(left, right)
 
-    def _launch(self, left: SideSpec, right: SideSpec) -> None:
+    def _refresh(self) -> None:
+        """Re-run the comparison reusing the last result as a baseline, so only
+        files modified since the last compare pay the content-comparison cost."""
+        if self._compare_thread is not None or self._sides is None or self._last_root is None:
+            return
+        self._launch(*self._sides, baseline=self._last_root)
+
+    def _launch(self, left: SideSpec, right: SideSpec, baseline: NodeResult | None = None) -> None:
         self._sides = (left, right)
         self._folder_view.compare_started()
 
-        worker = CompareWorker(left, right, self._options())
+        worker = CompareWorker(left, right, self._options(), baseline=baseline)
         worker.progress.connect(self.statusBar().showMessage)
         worker.dir_scanned.connect(self._folder_view.on_dir_scanned)
         worker.content_checked.connect(self._folder_view.on_content_checked)
@@ -680,8 +688,9 @@ class MainWindow(QMainWindow):
         if self._ops_pending:
             self._maybe_start_ops()
         elif self._sides is not None and self._compare_thread is None:
-            # refresh the tree so the result reflects the changes
-            self._launch(*self._sides)
+            # refresh so the result reflects the changes, re-checking content
+            # only for the files the operations touched (baseline reuse)
+            self._launch(*self._sides, baseline=self._last_root)
 
     # --- diff tabs (text and hex) ------------------------------------------------
 

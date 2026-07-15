@@ -166,6 +166,64 @@ def test_cancellation():
         next(gen)
 
 
+def _rewrite(fs: InMemoryFileSystem, path: str, content: bytes, mtime=STAMP) -> None:
+    with fs.open_write(path) as f:
+        f.write(content)
+    fs.set_mtime(path, mtime)
+
+
+def test_baseline_reuse_skips_unchanged_file():
+    # Identical files → SAME baseline. Then change the left bytes but keep its
+    # size and mtime; a refresh with the baseline must reuse SAME (no re-read),
+    # while a plain compare would notice the byte difference.
+    left = make_fs({"a.bin": b"AAAA"})
+    right = make_fs({"a.bin": b"AAAA"})
+    options = CompareOptions(content=ContentMode.BYTES)
+    baseline = run_compare(left, right, options)
+    assert find(baseline, "a.bin").status is Status.SAME
+
+    _rewrite(left, "a.bin", b"BBBB")  # same size + mtime, different bytes
+
+    refreshed = list(compare_folders(left, right, options, baseline=baseline))[-1].root
+    assert find(refreshed, "a.bin").status is Status.SAME  # reused, content not re-read
+
+    fresh = run_compare(left, right, options)
+    assert find(fresh, "a.bin").status is Status.DIFFERENT  # a full compare sees it
+
+
+def test_baseline_reuse_rechecks_modified_file():
+    # A file whose mtime changed since the baseline is compared afresh.
+    later = datetime(2026, 1, 1, 12, 0, 5, tzinfo=UTC)
+    left = make_fs({"a.bin": b"AAAA"})
+    right = make_fs({"a.bin": b"AAAB"})
+    options = CompareOptions(content=ContentMode.BYTES)
+    baseline = run_compare(left, right, options)
+    assert find(baseline, "a.bin").status is Status.DIFFERENT
+
+    _rewrite(left, "a.bin", b"AAAB", mtime=later)  # now equal content
+    _rewrite(right, "a.bin", b"AAAB", mtime=later)
+
+    events = list(compare_folders(left, right, options, baseline=baseline))
+    root = events[-1].root
+    assert find(root, "a.bin").status is Status.SAME
+    # it went through the content pass rather than being reused
+    assert any(isinstance(e, ContentChecked) and str(e.path) == "a.bin" for e in events)
+
+
+def test_baseline_reuse_handles_new_and_removed_files():
+    left = make_fs({"keep.bin": b"AAAA", "gone.bin": b"XXXX"})
+    right = make_fs({"keep.bin": b"AAAA"})
+    options = CompareOptions(content=ContentMode.BYTES)
+    baseline = run_compare(left, right, options)
+
+    _rewrite(right, "added.bin", b"YYYY")  # appears only after the baseline
+
+    root = list(compare_folders(left, right, options, baseline=baseline))[-1].root
+    assert find(root, "keep.bin").status is Status.SAME  # reused
+    assert find(root, "gone.bin").status is Status.LEFT_ONLY
+    assert find(root, "added.bin").status is Status.RIGHT_ONLY
+
+
 class _FailingListdirFs(InMemoryFileSystem):
     def __init__(self, fail_path: str):
         super().__init__()

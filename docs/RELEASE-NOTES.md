@@ -1,5 +1,14 @@
 # shankompare — Release Notes
 
+## 0.3.1 — 2026-07-15
+
+**New features**
+
+- **Fast Refresh in the folder tab** — re-scans both sides but only re-reads content for files whose size or modified time changed since the last comparison, instead of re-hashing everything. Much quicker on large or SFTP trees.
+- **Refresh after file operations** — copy/delete/rename now re-check only the files they touched (via the same fast refresh) rather than running a full re-compare.
+- **Expand all / Collapse all** buttons in the folder tab.
+- **Line numbers in text compare** — a gutter down each pane shows the real source line numbers, left blank on padding rows where one side has no matching line.
+
 ## 0.3.0 — 2026-07-14 (M4)
 
 **New features**

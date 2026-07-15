@@ -14,6 +14,7 @@ from shankompare.compare import (
     ContentChecked,
     DecodedText,
     DirScanned,
+    NodeResult,
     compare_folders,
     decode_bytes,
 )
@@ -141,11 +142,18 @@ class CompareWorker(QObject):
     finished = Signal(object)  # NodeResult, or None when cancelled
     failed = Signal(str, str, str)  # kind ("auth"/"connection"/...), side, message
 
-    def __init__(self, left: SideSpec, right: SideSpec, options: CompareOptions):
+    def __init__(
+        self,
+        left: SideSpec,
+        right: SideSpec,
+        options: CompareOptions,
+        baseline: NodeResult | None = None,
+    ):
         super().__init__()
         self._left = left
         self._right = right
         self._options = options
+        self._baseline = baseline
         self.cancel_event = threading.Event()
 
     def run(self) -> None:
@@ -175,7 +183,9 @@ class CompareWorker(QObject):
         ):
             dirs = files = 0
             root = None
-            for event in compare_folders(left_fs, right_fs, self._options, self.cancel_event):
+            for event in compare_folders(
+                left_fs, right_fs, self._options, self.cancel_event, baseline=self._baseline
+            ):
                 if isinstance(event, DirScanned):
                     dirs += 1
                     self.dir_scanned.emit(event.node)

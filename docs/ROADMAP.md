@@ -39,6 +39,14 @@ Goal: daily-drivable for the primary use case.
 - Archive files as folders (`ArchiveFileSystem`, zip/tar, read-only, local or SFTP)
 - In-app user manual and release notes (Help menu)
 
+## 0.3.1 — QoL patch ✅ (done 2026-07-15)
+
+Small enhancements on top of M4 (not a milestone):
+
+- Folder-tab fast **Refresh**: re-scan re-checking content only for files modified since the last compare; also used automatically after file operations.
+- Expand all / Collapse all in the folder tree.
+- Line numbers in the text compare view.
+
 ## M5+ — Backlog (future)
 
 Ordered by expected value, not committed:

@@ -276,6 +276,8 @@ class TextCompareView(QWidget):
             if self.edit_mode:
                 self._left_pane.setPlainText(self._left_data.text)
                 self._right_pane.setPlainText(self._right_data.text)
+                self._left_pane.set_sequential_numbering(True)
+                self._right_pane.set_sequential_numbering(True)
                 self._apply_highlights_raw()
             else:
                 rows = self._rows
@@ -288,6 +290,12 @@ class TextCompareView(QWidget):
                 )
                 self._left_pane.setPlainText(left_text)
                 self._right_pane.setPlainText(right_text)
+                self._left_pane.set_line_numbers(
+                    [r.left_no + 1 if r.left_no is not None else None for r in rows]
+                )
+                self._right_pane.set_line_numbers(
+                    [r.right_no + 1 if r.right_no is not None else None for r in rows]
+                )
                 self._apply_highlights_aligned()
         finally:
             self._updating = False

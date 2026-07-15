@@ -157,10 +157,18 @@ def compare_folders(
     right_fs: FileSystem,
     options: CompareOptions | None = None,
     cancel: threading.Event | None = None,
+    baseline: NodeResult | None = None,
 ) -> Iterator[CompareEvent]:
-    """Compare two rooted filesystems; yields events, ending with CompareDone."""
+    """Compare two rooted filesystems; yields events, ending with CompareDone.
+
+    ``baseline`` is the result tree of a previous comparison. When given, a
+    file pair whose size and mtime on both sides are unchanged from the
+    baseline reuses the baseline's status instead of re-reading content — a
+    "refresh" that only pays the content cost for files modified since then.
+    """
     options = options or CompareOptions()
     root = NodeResult("", Status.UNKNOWN, left_fs.stat("."), right_fs.stat("."))
+    baseline_index = _index_by_path(baseline) if baseline is not None else {}
     pending_content: list[tuple[PurePosixPath, NodeResult]] = []
     queue: deque[tuple[PurePosixPath, NodeResult]] = deque([(PurePosixPath("."), root)])
 
@@ -172,11 +180,42 @@ def compare_folders(
 
     for rel, node in pending_content:
         _check_cancel(cancel)
-        _compare_content(left_fs, right_fs, rel, node, options)
+        if not _reuse_baseline(node, baseline_index.get(str(rel))):
+            _compare_content(left_fs, right_fs, rel, node, options)
         yield ContentChecked(rel, node)
 
     _finalize(root)
     yield CompareDone(root)
+
+
+def _index_by_path(root: NodeResult) -> dict[str, NodeResult]:
+    """Map every node in a result tree to its relative path (as compare_folders keys them)."""
+    index: dict[str, NodeResult] = {}
+    stack: list[tuple[PurePosixPath, NodeResult]] = [(PurePosixPath("."), root)]
+    while stack:
+        rel, node = stack.pop()
+        index[str(rel)] = node
+        for child in node.children:
+            stack.append((rel / child.name, child))
+    return index
+
+
+def _stat_unchanged(current: EntryInfo | None, previous: EntryInfo | None) -> bool:
+    if current is None or previous is None:
+        return current is None and previous is None
+    return current.size == previous.size and current.mtime == previous.mtime
+
+
+def _reuse_baseline(node: NodeResult, base: NodeResult | None) -> bool:
+    """Adopt the baseline status for an unchanged pair; True if reused."""
+    if base is None or base.error is not None:
+        return False
+    if base.status not in (Status.SAME, Status.DIFFERENT):
+        return False
+    if _stat_unchanged(node.left, base.left) and _stat_unchanged(node.right, base.right):
+        node.status = base.status
+        return True
+    return False
 
 
 def _check_cancel(cancel: threading.Event | None) -> None:
