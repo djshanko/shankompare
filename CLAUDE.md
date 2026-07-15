@@ -50,6 +50,15 @@ ruff format .              # format
 - Credentials go through `keyring`, never in config files or code.
 - Paths and file content are Unicode-safe end to end; never assume a filesystem encoding.
 
+## Project Skills
+
+Task-specific guides in `.claude/skills/` — invoke the matching skill before starting these tasks:
+
+- `qt-threading` — any background/long-running work triggered from the UI (worker pattern, signal rules)
+- `add-vfs-backend` — adding or changing a `FileSystem` backend (contract requirements, test suite)
+- `verify` — checks to run before committing (format, lint, tests, headless UI tests)
+- `release` — version bump checklist (version locations, in-app docs, packaging)
+
 ## Documentation
 
 - docs/REQUIREMENTS.md — full feature spec, tagged [v1] / [future]
