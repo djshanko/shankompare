@@ -47,6 +47,13 @@ Small enhancements on top of M4 (not a milestone):
 - Expand all / Collapse all in the folder tree.
 - Line numbers in the text compare view.
 
+## 0.3.2 — QoL patch ✅ (done 2026-07-16)
+
+Small enhancement on top of M4 (not a milestone):
+
+- SFTP **remote clock-offset correction** (opt-in *Adjust remote clock*): the server clock is measured on connect and its skew subtracted from remote modified times, for servers that stamp files with their own (skewed) clock.
+- **Log file** (`shankompare.log`, rotating) with an Open Log Folder entry in the Help menu.
+
 ## M5+ — Backlog (future)
 
 Ordered by expected value, not committed:

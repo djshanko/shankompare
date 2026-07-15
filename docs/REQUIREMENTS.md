@@ -38,6 +38,7 @@ Tags:
 | Automatically compare subfolders and expand them in place | [v1] |
 | Display filters: show only differences / only added / only modified / all | [v1] |
 | Comparison criteria: last modified time (with configurable tolerance, ≥2 s for FAT/SFTP granularity) | [v1] |
+| Correct a skewed SFTP server clock when comparing modified times (opt-in, measured per connection) | [v1.x] |
 | Comparison criteria: size | [v1] |
 | Comparison criteria: file content (CRC32 or byte-by-byte) | [v1] |
 | Comparison criteria: filename case sensitivity toggle | [v1] |

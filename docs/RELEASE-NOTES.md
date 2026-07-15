@@ -1,5 +1,12 @@
 # shankompare — Release Notes
 
+## 0.3.2 — 2026-07-16
+
+**New features**
+
+- **Remote clock-offset correction (opt-in)** — a new **Adjust remote clock** checkbox measures the SFTP server's clock on connect (by timestamping a temporary probe file) and corrects modified times by that offset. Enable it when your remote files are timestamped by the server's *own* clock and that clock is skewed; leave it off (the default) when remote files already carry correct times, so the offset isn't applied where it isn't wanted. The setting is saved with sessions.
+- **Log file** — output now goes to a rotating `shankompare.log` (previously only the console, which a windowed build doesn't have). Open its folder from **Help → Open Log Folder**. The measured clock offset and any probe failure are recorded there.
+
 ## 0.3.1 — 2026-07-15
 
 **New features**

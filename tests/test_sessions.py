@@ -34,6 +34,25 @@ def test_session_load_missing_returns_empty(tmp_path):
     assert SessionStore(tmp_path).load() == []
 
 
+def test_correct_clock_offset_roundtrips_and_defaults_false(tmp_path):
+    store = SessionStore(tmp_path)
+    session = Session(
+        name="skewed",
+        left=SessionSide(SIDE_LOCAL, "C:/a"),
+        right=SessionSide(SIDE_SFTP, "/srv", profile="prod"),
+        correct_clock_offset=True,
+    )
+    store.save([session])
+    assert store.load()[0].correct_clock_offset is True
+    # a session saved before this field existed loads as off
+    (tmp_path / "sessions.json").write_text(
+        '[{"name": "old", "left": {"kind": "local", "path": "x"},'
+        ' "right": {"kind": "local", "path": "y"}}]',
+        encoding="utf-8",
+    )
+    assert store.load()[0].correct_clock_offset is False
+
+
 def test_session_unknown_keys_ignored(tmp_path):
     store = SessionStore(tmp_path)
     path = tmp_path / "sessions.json"

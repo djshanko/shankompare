@@ -31,6 +31,7 @@ class Session:
     mtime_tolerance: float = 2.0
     content: str = "none"  # ContentMode value
     case_sensitive: bool = True
+    correct_clock_offset: bool = False  # adjust SFTP mtimes for server clock skew
     exclude_globs: list[str] = field(default_factory=list)
     exclude_min_size: int | None = None
     exclude_max_size: int | None = None

@@ -2,8 +2,8 @@
 
 from dataclasses import replace
 
-from PySide6.QtCore import Qt, QThread
-from PySide6.QtGui import QActionGroup, QCloseEvent
+from PySide6.QtCore import Qt, QThread, QUrl
+from PySide6.QtGui import QActionGroup, QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -55,7 +55,7 @@ from .help_dialog import HelpDialog
 from .hex_compare import HexCompareView
 from .profile_dialog import ProfileDialog
 from .remote_browse import RemoteBrowseDialog
-from .resources import doc_path
+from .resources import doc_path, log_dir
 from .text_compare import TextCompareView
 from .theme import THEMES, apply_theme
 from .worker import (
@@ -246,6 +246,12 @@ class MainWindow(QMainWindow):
         self._content_combo.addItem("Content: byte-by-byte", ContentMode.BYTES)
         self._case_check = QCheckBox("Case sensitive")
         self._case_check.setChecked(True)
+        self._clock_check = QCheckBox("Adjust remote clock")
+        self._clock_check.setToolTip(
+            "Measure the SFTP server's clock offset and correct remote modified times.\n"
+            "Enable only when remote files are timestamped by the server's own clock;\n"
+            "if they already carry correct times, leave this off."
+        )
 
         self._filters_btn = QPushButton("Filters…")
         self._filters_btn.clicked.connect(self._edit_filters)
@@ -290,6 +296,7 @@ class MainWindow(QMainWindow):
             self._tolerance,
             self._content_combo,
             self._case_check,
+            self._clock_check,
         ):
             options_row.addWidget(widget)
         options_row.addWidget(self._filters_btn)
@@ -354,11 +361,20 @@ class MainWindow(QMainWindow):
         notes_action = help_menu.addAction("Release Notes")
         notes_action.triggered.connect(lambda: self._show_doc("Release Notes", "RELEASE-NOTES.md"))
         help_menu.addSeparator()
+        log_action = help_menu.addAction("Open Log Folder")
+        log_action.triggered.connect(self._open_log_folder)
+        help_menu.addSeparator()
         about_action = help_menu.addAction("About shankompare")
         about_action.triggered.connect(self._show_about)
 
     def _show_doc(self, title: str, name: str) -> None:
         HelpDialog(title, doc_path(name), parent=self).show()
+
+    def _open_log_folder(self) -> None:
+        directory = log_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory))):
+            QMessageBox.information(self, "Log folder", f"Logs are in:\n{directory}")
 
     def _show_about(self) -> None:
         QMessageBox.about(
@@ -399,6 +415,7 @@ class MainWindow(QMainWindow):
             mtime_tolerance=options.mtime_tolerance,
             content=options.content.value,
             case_sensitive=options.case_sensitive,
+            correct_clock_offset=self._clock_check.isChecked(),
         )
         session.set_exclude_filters(self._exclude)
         self._sessions = [s for s in self._sessions if s.name != name] + [session]
@@ -415,6 +432,7 @@ class MainWindow(QMainWindow):
         index = self._content_combo.findData(ContentMode(session.content))
         self._content_combo.setCurrentIndex(max(index, 0))
         self._case_check.setChecked(session.case_sensitive)
+        self._clock_check.setChecked(session.correct_clock_offset)
         self._exclude = session.exclude_filters()
         self._update_filters_button()
         if not (ok_left and ok_right):
@@ -484,7 +502,7 @@ class MainWindow(QMainWindow):
             secret, ok = prompt_secret(self, profile)
             if not ok:
                 return None
-        return SftpSide(profile, secret)
+        return SftpSide(profile, secret, correct_clock_offset=self._clock_check.isChecked())
 
     def _start(self) -> None:
         if self._compare_thread is not None:
@@ -606,7 +624,7 @@ class MainWindow(QMainWindow):
         secret, ok = prompt_secret(self, spec.profile)
         if not ok:
             return False
-        new_spec = SftpSide(spec.profile, secret)
+        new_spec = replace(spec, secret=secret)
         if side == "left":
             left = new_spec
         else:

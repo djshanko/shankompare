@@ -2,7 +2,7 @@
 
 Cross-platform (Windows + Ubuntu) file/folder comparison tool, built as a lighter-weight personal replacement for Beyond Compare 5. Primary use case: side-by-side comparison between local folders and SFTP servers, plus text file diff.
 
-**Current status:** v0.3.1 — M4 (sync commands, exclusion filters (session-persisted), binary/hex compare, archives as folders, in-app manual + release notes) plus folder-tab fast Refresh (modified-only re-check, also used after file ops), expand/collapse all, and line numbers in text compare. Next: M5+ backlog (see docs/ROADMAP.md).
+**Current status:** v0.3.2 — M4 (sync commands, exclusion filters (session-persisted), binary/hex compare, archives as folders, in-app manual + release notes) plus folder-tab fast Refresh (modified-only re-check, also used after file ops), expand/collapse all, line numbers in text compare, and SFTP remote clock-offset correction. Next: M5+ backlog (see docs/ROADMAP.md).
 
 ## Tech Stack
 

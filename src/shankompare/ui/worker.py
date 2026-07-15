@@ -47,6 +47,7 @@ class LocalSide:
 class SftpSide:
     profile: ConnectionProfile
     secret: str | None
+    correct_clock_offset: bool = False
 
 
 SideSpec = LocalSide | SftpSide
@@ -71,7 +72,11 @@ def _open_local_side(path_text: str) -> FileSystem:
 
 def _open_sftp_side(spec: SftpSide) -> FileSystem:
     profile = spec.profile
-    fs = SftpFileSystem(profile.host, **profile.to_sftp_kwargs(spec.secret))
+    fs = SftpFileSystem(
+        profile.host,
+        **profile.to_sftp_kwargs(spec.secret),
+        measure_clock_offset=spec.correct_clock_offset,
+    )
     try:
         info = fs.stat(".")
         if info.is_dir:
@@ -169,6 +174,18 @@ class CompareWorker(QObject):
             log.exception("comparison worker crashed")
             self.failed.emit("internal", "", "Unexpected error; see the log output for details.")
 
+    def _report_clock_offset(self, side: str, fs: FileSystem) -> None:
+        offset = getattr(fs, "clock_offset", None)
+        if not getattr(fs, "clock_offset_known", False) or offset is None:
+            return
+        seconds = offset.total_seconds()
+        if abs(seconds) < 1.0:
+            return  # negligible; not worth a message
+        ahead = "ahead of" if seconds > 0 else "behind"
+        self.progress.emit(
+            f"Remote clock ({side}) is {abs(seconds):.0f}s {ahead} local; adjusting modified times."
+        )
+
     def _open(self, spec: SideSpec, side: str) -> FileSystem:
         try:
             return open_side(spec)
@@ -181,6 +198,8 @@ class CompareWorker(QObject):
             self._open(self._left, "left") as left_fs,
             self._open(self._right, "right") as right_fs,
         ):
+            self._report_clock_offset("left", left_fs)
+            self._report_clock_offset("right", right_fs)
             dirs = files = 0
             root = None
             for event in compare_folders(

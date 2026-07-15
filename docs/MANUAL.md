@@ -1,6 +1,6 @@
 # shankompare — User Manual
 
-shankompare compares folders and files side by side — between local disks, SFTP servers, and archive files — and lets you copy, delete, edit, and synchronize the differences. This manual covers version 0.3.1.
+shankompare compares folders and files side by side — between local disks, SFTP servers, and archive files — and lets you copy, delete, edit, and synchronize the differences. This manual covers version 0.3.2.
 
 ## 1. Getting started
 
@@ -22,6 +22,7 @@ Two files with the same name count as *different* when any enabled criterion say
 
 - **Size** — byte sizes differ.
 - **Modified time** — mtimes differ by more than the tolerance (default 2 s; SFTP and FAT store whole seconds).
+- **Adjust remote clock** (SFTP only, off by default) — when a remote file's modified time is stamped by the *server's own clock* and that clock is wrong or unsynced, every such file looks modified. Tick this to have shankompare measure the offset on connect (by timestamping a temporary probe file in the remote root) and subtract it from remote mtimes. Leave it **off** if your remote files already carry correct times (e.g. they were uploaded with timestamps preserved), otherwise the correction would shift good times and *create* differences. Needs a writable remote root; if the probe can't write, no adjustment is made. The measured offset is written to the log (see Troubleshooting).
 - **Content** — CRC32 or byte-by-byte. Files that pass the cheap checks are verified by content in a second pass.
 - **Case sensitive** — controls whether `README.txt` and `readme.txt` are the same entry.
 
@@ -78,3 +79,5 @@ The **Session** menu saves the current setup — both sides, all criteria, and e
 - **A folder shows “Unknown ⚠”** — it couldn't be read (usually permissions); hover for the exact error. The rest of the comparison is unaffected.
 - **File too large** — text compare stops at 32 MiB, hex at 2 MiB, archives at 256 MiB.
 - **Everything looks stale** — file operations re-compare automatically, but external changes don't; click **Refresh** in the folder tab to re-check only what changed, **Compare** for a full re-scan, or **Refresh** inside a compare tab.
+- **Every SFTP file shows as different (by modified time)** — the remote clock and your local clock disagree. If the remote files are timestamped by the server's own clock, tick **Adjust remote clock** (see §3) to correct it; it needs a **writable** remote root. Check **Help → Open Log Folder** → `shankompare.log`: a successful probe logs `SFTP clock offset measured: …`, a failed one logs a `clock-offset probe failed …` warning. If ticking it makes files show up as ~the offset *older* instead, your remote files already had correct times — untick it.
+- **Seeing the logs** — **Help → Open Log Folder** opens `shankompare.log` (in `%LOCALAPPDATA%\shankompare\Logs` on Windows, `~/.local/state/shankompare/log` or `~/.cache/shankompare/log` on Ubuntu). It records connections, the measured clock offset, and errors — useful when the status bar message flashes by too quickly.
