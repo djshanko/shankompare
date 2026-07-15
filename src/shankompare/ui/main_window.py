@@ -7,6 +7,7 @@ from PySide6.QtGui import QActionGroup, QCloseEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDialog,
     QDoubleSpinBox,
     QFileDialog,
     QGroupBox,
@@ -45,6 +46,7 @@ from shankompare.sessions import (
     SessionStore,
     SettingsStore,
 )
+from shankompare.vfs import ARCHIVE_SUFFIXES
 from shankompare.vfs.ops import FileOp, OpKind
 
 from .filters_dialog import FiltersDialog
@@ -91,6 +93,27 @@ def prompt_secret(parent: QWidget, profile: ConnectionProfile) -> tuple[str | No
         QLineEdit.EchoMode.Password,
     )
     return (secret or None), ok
+
+
+class _FolderOrArchiveDialog(QFileDialog):
+    """Native-look file dialog that accepts either a folder or an archive file.
+
+    QFileDialog has no built-in mode for "directory or matching file", so this
+    shows both (FileMode.Directory + ShowDirsOnly=False, only possible with the
+    non-native dialog) and skips QFileDialog's own accept() validation, which
+    would otherwise reject a selected file because the mode is Directory.
+    """
+
+    def __init__(self, parent: QWidget | None, caption: str, directory: str):
+        super().__init__(parent, caption, directory)
+        self.setFileMode(QFileDialog.FileMode.Directory)
+        self.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        self.setOption(QFileDialog.Option.ShowDirsOnly, False)
+        patterns = " ".join(f"*{suffix}" for suffix in ARCHIVE_SUFFIXES)
+        self.setNameFilter(f"Folders and archives ({patterns})")
+
+    def accept(self) -> None:
+        QDialog.accept(self)
 
 
 class SidePicker(QGroupBox):
@@ -167,9 +190,9 @@ class SidePicker(QGroupBox):
     def _on_browse(self) -> None:
         profile = self.selected_profile()
         if profile is None:
-            path = QFileDialog.getExistingDirectory(self, "Select folder", self.path())
-            if path:
-                self._path.setText(path)
+            dialog = _FolderOrArchiveDialog(self, "Select folder or archive", self.path())
+            if dialog.exec() and dialog.selectedFiles():
+                self._path.setText(dialog.selectedFiles()[0])
             return
         secret = ProfileStore.get_secret(profile.name)
         if secret is None and profile.auth_method == AUTH_PASSWORD:

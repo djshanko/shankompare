@@ -8,6 +8,7 @@ shankompare compares folders and files side by side — between local disks, SFT
    - a **local folder** — type the path or click **…** to browse;
    - an **SFTP profile** — select it in the dropdown; the path field holds the remote folder (click **…** to browse the server);
    - an **archive file** — a path (local or remote) ending in `.zip`, `.tar`, `.tar.gz/.tgz`, `.tar.bz2` or `.tar.xz` opens read-only as if it were a folder. Tip: archive timestamps are often imprecise (zip stores no time zone), so when comparing an archive against a folder, disable *Modified time* or enable a *Content* check for accurate results.
+   - the **…** browse button (local and remote) lets you pick either a folder or a supported archive file — no need to type the archive path by hand.
 2. Choose comparison criteria (see §3) and click **Compare**.
 3. Results stream into the tree as folders are scanned. Colors: **red** = different, **blue** = only on the left, **green** = only on the right, **orange** = not compared (see the tooltip for the reason).
 

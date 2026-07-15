@@ -6,7 +6,7 @@ cross over via signals, so the UI stays responsive while listing.
 
 import posixpath
 
-from PySide6.QtCore import QObject, QThread, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -20,11 +20,11 @@ from PySide6.QtWidgets import (
 )
 
 from shankompare.sessions import ConnectionProfile
-from shankompare.vfs import SftpFileSystem, VfsError
+from shankompare.vfs import SftpFileSystem, VfsError, is_archive_name
 
 
 class _BrowseWorker(QObject):
-    listed = Signal(str, list)  # absolute path, sorted dir names
+    listed = Signal(str, list)  # absolute path, sorted (name, is_dir) tuples
     failed = Signal(str)
 
     def __init__(self, profile: ConnectionProfile, secret: str | None):
@@ -41,11 +41,15 @@ class _BrowseWorker(QObject):
                 kwargs["root"] = "/"  # browse the whole server; paths stay absolute
                 self._fs = SftpFileSystem(self._profile.host, **kwargs)
             absolute = self._fs.resolve(path or ".")
-            names = sorted(
-                (entry.name for entry in self._fs.listdir(absolute) if entry.is_dir),
-                key=str.casefold,
+            entries = sorted(
+                (
+                    (entry.name, entry.is_dir)
+                    for entry in self._fs.listdir(absolute)
+                    if entry.is_dir or is_archive_name(entry.name)
+                ),
+                key=lambda item: item[0].casefold(),
             )
-            self.listed.emit(absolute, list(names))
+            self.listed.emit(absolute, list(entries))
         except VfsError as exc:
             self.failed.emit(str(exc))
 
@@ -53,6 +57,10 @@ class _BrowseWorker(QObject):
         if self._fs is not None:
             self._fs.close()
             self._fs = None
+
+
+_NAME_ROLE = Qt.ItemDataRole.UserRole
+_IS_DIR_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
 class RemoteBrowseDialog(QDialog):
@@ -104,7 +112,8 @@ class RemoteBrowseDialog(QDialog):
         go_btn.clicked.connect(self._on_go)
         up_btn.clicked.connect(self._on_up)
         self._path_edit.returnPressed.connect(self._on_go)
-        self._list.itemDoubleClicked.connect(self._on_descend)
+        self._list.itemClicked.connect(self._on_click)
+        self._list.itemDoubleClicked.connect(self._on_activate)
 
         self._request(start_path or profile.initial_path or ".")
 
@@ -117,13 +126,18 @@ class RemoteBrowseDialog(QDialog):
         self._list.setEnabled(False)
         self._navigate.emit(path)
 
-    def _on_listed(self, path: str, names: list) -> None:
+    def _on_listed(self, path: str, entries: list) -> None:
         self._path_edit.setText(path)
         self._list.clear()
-        for name in names:
-            QListWidgetItem(name, self._list)
+        folder_count = 0
+        for name, is_dir in entries:
+            item = QListWidgetItem(f"{name}/" if is_dir else name, self._list)
+            item.setData(_NAME_ROLE, name)
+            item.setData(_IS_DIR_ROLE, is_dir)
+            folder_count += is_dir
         self._list.setEnabled(True)
-        self._info.setText(f"{len(names)} folder(s)")
+        archive_count = len(entries) - folder_count
+        self._info.setText(f"{folder_count} folder(s), {archive_count} archive(s)")
 
     def _on_failed(self, message: str) -> None:
         self._list.setEnabled(True)
@@ -136,9 +150,19 @@ class RemoteBrowseDialog(QDialog):
         current = self._path_edit.text().strip() or "/"
         self._request(posixpath.dirname(current.rstrip("/")) or "/")
 
-    def _on_descend(self, item: QListWidgetItem) -> None:
+    def _on_click(self, item: QListWidgetItem) -> None:
+        if not item.data(_IS_DIR_ROLE):
+            current = self._path_edit.text().strip() or "/"
+            self._path_edit.setText(posixpath.join(current, item.data(_NAME_ROLE)))
+
+    def _on_activate(self, item: QListWidgetItem) -> None:
         current = self._path_edit.text().strip() or "/"
-        self._request(posixpath.join(current, item.text()))
+        target = posixpath.join(current, item.data(_NAME_ROLE))
+        if item.data(_IS_DIR_ROLE):
+            self._request(target)
+        else:
+            self._path_edit.setText(target)
+            self.accept()
 
     def done(self, result: int) -> None:
         self._thread.quit()
