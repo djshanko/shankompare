@@ -1,6 +1,7 @@
 """Folder comparison result view: filter toolbar + streaming tree + file ops."""
 
 from PySide6.QtCore import QModelIndex, QPoint, Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -36,19 +37,28 @@ class FolderCompareView(QWidget):
         self._filter_combo.currentIndexChanged.connect(self._on_filter_changed)
 
         self._refresh_btn = QPushButton("Refresh")
+        self._refresh_btn.setShortcut("F5")
         self._refresh_btn.setToolTip(
-            "Re-scan, re-comparing content only for files modified since the last comparison"
+            "Re-scan, re-comparing content only for files modified since the last comparison (F5)"
         )
         self._refresh_btn.setEnabled(False)
         self._refresh_btn.clicked.connect(self.refresh_requested)
 
         expand_btn = QPushButton("Expand all")
         collapse_btn = QPushButton("Collapse all")
+        expand_btn.setShortcut("Ctrl+E")
+        collapse_btn.setShortcut("Ctrl+Shift+E")
+        expand_btn.setToolTip("Expand every folder (Ctrl+E)")
+        collapse_btn.setToolTip("Collapse every folder (Ctrl+Shift+E)")
         expand_btn.clicked.connect(self._tree_expand_all)
         collapse_btn.clicked.connect(self._tree_collapse_all)
 
         prev_btn = QPushButton("◀ Prev diff")
         next_btn = QPushButton("Next diff ▶")
+        prev_btn.setShortcut("F7")
+        next_btn.setShortcut("F8")
+        prev_btn.setToolTip("Select the previous differing file (F7)")
+        next_btn.setToolTip("Select the next differing file (F8)")
         prev_btn.clicked.connect(lambda: self._goto_diff(-1))
         next_btn.clicked.connect(lambda: self._goto_diff(+1))
 
@@ -59,10 +69,24 @@ class FolderCompareView(QWidget):
         self._tree.setColumnWidth(0, 320)
         self._tree.setColumnWidth(2, 150)
         self._tree.setColumnWidth(4, 150)
-        self._tree.doubleClicked.connect(self._on_activated)
+        # activated fires on both double-click and Enter, so it also gives us
+        # "open the selected pair" from the keyboard for free.
+        self._tree.activated.connect(self._on_activated)
         self._tree.setSelectionMode(QTreeView.SelectionMode.ExtendedSelection)
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
+
+        # File-op shortcuts, scoped to this view so they don't fire from other tabs.
+        for sequence, slot in (
+            ("Alt+Right", lambda: self._copy_selected("right")),
+            ("Alt+Left", lambda: self._copy_selected("left")),
+            ("Ctrl+Del", lambda: self._delete_selected("left")),
+            ("Ctrl+Shift+Del", lambda: self._delete_selected("right")),
+            ("F2", self._rename_selected),
+        ):
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(slot)
 
         toolbar = QHBoxLayout()
         toolbar.addWidget(QLabel("Show:"))
@@ -189,6 +213,32 @@ class FolderCompareView(QWidget):
             rename_action.triggered.connect(lambda _=False, i=items[0]: self._rename(i))
 
         menu.exec(self._tree.viewport().mapToGlobal(pos))
+
+    # --- keyboard-driven file operations -----------------------------------------
+
+    def _copy_selected(self, to_side: str) -> None:
+        """Copy the selected entries toward ``to_side`` ("left" or "right").
+
+        Only entries that actually exist on the *source* side are eligible; the
+        rest are silently skipped (mirrors the context-menu enable rules)."""
+        if to_side == "right":
+            kind, source = OpKind.COPY_LTR, "left"
+        else:
+            kind, source = OpKind.COPY_RTL, "right"
+        eligible = [i for i in self._selected_items() if getattr(i.node, source) is not None]
+        if eligible:
+            self.ops_requested.emit([FileOp(kind, str(i.rel_path)) for i in eligible])
+
+    def _delete_selected(self, side: str) -> None:
+        kind = OpKind.DELETE_LEFT if side == "left" else OpKind.DELETE_RIGHT
+        eligible = [i for i in self._selected_items() if getattr(i.node, side) is not None]
+        if eligible:
+            self.ops_requested.emit([FileOp(kind, str(i.rel_path)) for i in eligible])
+
+    def _rename_selected(self) -> None:
+        items = self._selected_items()
+        if len(items) == 1:
+            self._rename(items[0])
 
     def _rename(self, item) -> None:
         new_name, ok = QInputDialog.getText(

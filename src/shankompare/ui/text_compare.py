@@ -10,11 +10,12 @@ Two modes:
 from dataclasses import replace
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QTextCursor
+from PySide6.QtGui import QKeySequence, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QSplitter,
@@ -55,6 +56,7 @@ _Pane = DiffPane
 class TextCompareView(QWidget):
     save_requested = Signal(str, bytes)  # side ("left"/"right"), encoded content
     refresh_requested = Signal()
+    dirty_changed = Signal(bool)  # True when either pane has unsaved edits
 
     def __init__(self, left_title: str, right_title: str, parent: QWidget | None = None):
         super().__init__(parent)
@@ -74,8 +76,14 @@ class TextCompareView(QWidget):
         self._status = QLabel("Loading…")
 
         self._edit_check = QCheckBox("Edit")
+        self._edit_check.setShortcut("Ctrl+E")
+        self._edit_check.setToolTip("Make both panes editable (Ctrl+E)")
         self._ignore_ws = QCheckBox("Ignore whitespace")
+        self._ignore_ws.setShortcut("Ctrl+I")
+        self._ignore_ws.setToolTip("Ignore leading/trailing whitespace (Ctrl+I)")
         self._only_diff = QCheckBox("Only differences")
+        self._only_diff.setShortcut("Ctrl+D")
+        self._only_diff.setToolTip("Hide unchanged regions (Ctrl+D)")
         self._context = QSpinBox()
         self._context.setRange(0, 100)
         self._context.setValue(3)
@@ -86,14 +94,33 @@ class TextCompareView(QWidget):
         self._context.setEnabled(False)
         copy_rtl_btn = QPushButton("◀ Copy section")
         copy_ltr_btn = QPushButton("Copy section ▶")
+        copy_rtl_btn.setShortcut("Alt+Left")
+        copy_ltr_btn.setShortcut("Alt+Right")
+        copy_rtl_btn.setToolTip("Copy the difference under the cursor to the left (Alt+←)")
+        copy_ltr_btn.setToolTip("Copy the difference under the cursor to the right (Alt+→)")
+        self._undo_btn = QPushButton("Undo")
+        self._redo_btn = QPushButton("Redo")
+        self._undo_btn.setShortcut(QKeySequence.StandardKey.Undo)  # Ctrl+Z
+        self._redo_btn.setShortcut(QKeySequence.StandardKey.Redo)  # Ctrl+Y / Ctrl+Shift+Z
+        self._undo_btn.setToolTip("Undo the last edit in the focused pane (Ctrl+Z)")
+        self._redo_btn.setToolTip("Redo the last undone edit in the focused pane (Ctrl+Y)")
+        self._undo_btn.setEnabled(False)
+        self._redo_btn.setEnabled(False)
         self._save_left = QPushButton("Save left")
         self._save_right = QPushButton("Save right")
         self._save_left.setEnabled(False)
         self._save_right.setEnabled(False)
+        self._save_left.setToolTip("Write the left pane back (Ctrl+S saves the focused pane)")
+        self._save_right.setToolTip("Write the right pane back (Ctrl+S saves the focused pane)")
         refresh_btn = QPushButton("Refresh")
-        refresh_btn.setToolTip("Reload both files from disk / server")
+        refresh_btn.setShortcut("F5")
+        refresh_btn.setToolTip("Reload both files from disk / server (F5)")
         prev_btn = QPushButton("◀ Prev")
         next_btn = QPushButton("Next ▶")
+        prev_btn.setShortcut("F7")
+        next_btn.setShortcut("F8")
+        prev_btn.setToolTip("Jump to the previous difference (F7)")
+        next_btn.setToolTip("Jump to the next difference (F8)")
 
         self._edit_check.toggled.connect(self._on_edit_toggled)
         self._ignore_ws.toggled.connect(self._recompute)
@@ -101,6 +128,8 @@ class TextCompareView(QWidget):
         self._context.valueChanged.connect(self._render)
         copy_ltr_btn.clicked.connect(lambda: self._copy_section("ltr"))
         copy_rtl_btn.clicked.connect(lambda: self._copy_section("rtl"))
+        self._undo_btn.clicked.connect(self._undo)
+        self._redo_btn.clicked.connect(self._redo)
         self._save_left.clicked.connect(lambda: self._save("left"))
         self._save_right.clicked.connect(lambda: self._save("right"))
         refresh_btn.clicked.connect(self._on_refresh_clicked)
@@ -119,6 +148,10 @@ class TextCompareView(QWidget):
         self._left_pane.cursorPositionChanged.connect(self._push_selections)
         self._right_pane.cursorPositionChanged.connect(self._push_selections)
 
+        save_shortcut = QShortcut(QKeySequence.StandardKey.Save, self)  # Ctrl+S
+        save_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        save_shortcut.activated.connect(self._save_focused)
+
         titles = QHBoxLayout()
         titles.addWidget(self._left_info, 1)
         titles.addWidget(self._right_info, 1)
@@ -128,6 +161,8 @@ class TextCompareView(QWidget):
             controls.addWidget(widget)
         controls.addWidget(copy_rtl_btn)
         controls.addWidget(copy_ltr_btn)
+        controls.addWidget(self._undo_btn)
+        controls.addWidget(self._redo_btn)
         controls.addWidget(self._save_left)
         controls.addWidget(self._save_right)
         controls.addWidget(refresh_btn)
@@ -171,9 +206,16 @@ class TextCompareView(QWidget):
         self._status.setText(f"Save failed: {message}")
 
     def _on_refresh_clicked(self) -> None:
-        if self._dirty["left"] or self._dirty["right"]:
-            self._status.setText("Unsaved changes — save or discard them, then refresh.")
-            return
+        if self.has_unsaved_changes():
+            choice = self.prompt_unsaved("reloading")
+            if choice == QMessageBox.StandardButton.Cancel:
+                return
+            if choice == QMessageBox.StandardButton.Save:
+                # Written content already matches the panes, so there is nothing
+                # left to reload — saving satisfies the refresh.
+                self.save_all_unsaved()
+                return
+            # Discard: fall through and let the reload overwrite the edits.
         self._status.setText("Reloading…")
         self.refresh_requested.emit()
 
@@ -210,6 +252,8 @@ class TextCompareView(QWidget):
         self._context.setEnabled(not editing and self._only_diff.isChecked())
         self._left_pane.setReadOnly(not editing)
         self._right_pane.setReadOnly(not editing)
+        self._undo_btn.setEnabled(editing)
+        self._redo_btn.setEnabled(editing)
         self._render()
 
     def _on_text_changed(self, side: str) -> None:
@@ -229,9 +273,13 @@ class TextCompareView(QWidget):
         self._update_status()
 
     def _set_dirty(self, side: str, dirty: bool = True) -> None:
+        was_dirty = self._dirty["left"] or self._dirty["right"]
         self._dirty[side] = dirty
         self._save_left.setEnabled(self._dirty["left"])
         self._save_right.setEnabled(self._dirty["right"])
+        now_dirty = self._dirty["left"] or self._dirty["right"]
+        if now_dirty != was_dirty:
+            self.dirty_changed.emit(now_dirty)
 
     def _save(self, side: str) -> None:
         data = self._left_data if side == "left" else self._right_data
@@ -242,9 +290,66 @@ class TextCompareView(QWidget):
             data = self._left_data if side == "left" else self._right_data
         self.save_requested.emit(side, encode_text(data.text, data.encoding, data.eol))
 
+    def _save_focused(self) -> None:
+        """Ctrl+S: save whichever pane has focus (falling back to the sole dirty
+        side, else the left), but only when it actually has unsaved changes."""
+        if self._right_pane.hasFocus():
+            side = "right"
+        elif self._left_pane.hasFocus():
+            side = "left"
+        elif self._dirty["right"] and not self._dirty["left"]:
+            side = "right"
+        else:
+            side = "left"
+        if self.edit_mode:  # flush pending edits so the dirty flags are current
+            self._on_edited()
+        if not self._dirty[side]:
+            self._status.setText(f"No unsaved changes on the {side} side.")
+            return
+        self._save(side)
+
     def mark_saved(self, side: str) -> None:
         self._set_dirty(side, False)
         self._status.setText(f"Saved {side} side.")
+
+    # --- undo / redo -------------------------------------------------------------
+
+    def _focused_pane(self) -> _Pane:
+        """The pane the undo/redo actions target: the focused one, else the left."""
+        return self._right_pane if self._right_pane.hasFocus() else self._left_pane
+
+    def _undo(self) -> None:
+        self._focused_pane().undo()
+
+    def _redo(self) -> None:
+        self._focused_pane().redo()
+
+    # --- unsaved-changes coordination --------------------------------------------
+
+    def has_unsaved_changes(self) -> bool:
+        return self._dirty["left"] or self._dirty["right"]
+
+    def save_all_unsaved(self) -> None:
+        """Write every dirty pane back (flushing pending edits first)."""
+        if self.edit_mode:
+            self._on_edited()
+        for side in ("left", "right"):
+            if self._dirty[side]:
+                self._save(side)
+
+    def prompt_unsaved(self, action: str) -> QMessageBox.StandardButton:
+        """Ask whether to Save/Discard/Cancel unsaved edits before ``action``."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Unsaved changes")
+        box.setText(f"This file has unsaved changes.\n\nSave them before {action}?")
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.Save)
+        return box.exec()
 
     # --- copy sections -----------------------------------------------------------
 

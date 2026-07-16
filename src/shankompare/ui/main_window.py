@@ -3,7 +3,13 @@
 from dataclasses import replace
 
 from PySide6.QtCore import Qt, QThread, QUrl
-from PySide6.QtGui import QActionGroup, QCloseEvent, QDesktopServices
+from PySide6.QtGui import (
+    QActionGroup,
+    QCloseEvent,
+    QDesktopServices,
+    QKeySequence,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -68,6 +74,51 @@ from .worker import (
     TextSaveWorker,
     start_worker,
 )
+
+SHORTCUTS_MARKDOWN = """\
+# Keyboard shortcuts
+
+## Anywhere
+| Action | Shortcut |
+| --- | --- |
+| Refresh the active view | F5 |
+| Close current tab | Ctrl+W |
+| Next tab | Ctrl+Tab |
+| Previous tab | Ctrl+Shift+Tab |
+| Jump to the Folders tab | Ctrl+1 |
+
+## Folders tab
+| Action | Shortcut |
+| --- | --- |
+| Run comparison | F6 |
+| Cancel comparison | Esc |
+| Previous / Next difference | F7 / F8 |
+| Copy selection to left / right | Alt+← / Alt+→ |
+| Delete selection on left / right | Ctrl+Del / Ctrl+Shift+Del |
+| Open selected pair | Enter |
+| Rename selected | F2 |
+| Expand all / Collapse all | Ctrl+E / Ctrl+Shift+E |
+| Edit filters | Ctrl+L |
+
+## Text compare tab
+| Action | Shortcut |
+| --- | --- |
+| Previous / Next difference | F7 / F8 |
+| Copy section to left / right | Alt+← / Alt+→ |
+| Undo / Redo in the focused pane | Ctrl+Z / Ctrl+Y |
+| Save the focused pane | Ctrl+S |
+| Toggle Edit mode | Ctrl+E |
+| Toggle Ignore whitespace | Ctrl+I |
+| Toggle Only differences | Ctrl+D |
+| Reload both files | F5 |
+
+## Hex compare tab
+| Action | Shortcut |
+| --- | --- |
+| Previous / Next difference | F7 / F8 |
+| Toggle Only differences | Ctrl+D |
+| Reload both files | F5 |
+"""
 
 
 class _LoadingTab(QWidget):
@@ -244,6 +295,15 @@ class MainWindow(QMainWindow):
         self._content_combo.addItem("No content check", ContentMode.NONE)
         self._content_combo.addItem("Content: CRC32", ContentMode.CRC32)
         self._content_combo.addItem("Content: byte-by-byte", ContentMode.BYTES)
+        self._content_combo.setCurrentIndex(self._content_combo.findData(ContentMode.CRC32))
+        self._skip_equal_check = QCheckBox("Skip content if size+time match")
+        self._skip_equal_check.setChecked(True)
+        self._skip_equal_check.setToolTip(
+            "When content check is on, take a pair whose size and modified time\n"
+            "already agree as equal without reading it. Uncheck to force a full\n"
+            "content read on every pair (catches same-size, same-time files whose\n"
+            "bytes differ). Pairs whose time differs are always read either way."
+        )
         self._case_check = QCheckBox("Case sensitive")
         self._case_check.setChecked(True)
         self._clock_check = QCheckBox("Adjust remote clock")
@@ -254,6 +314,8 @@ class MainWindow(QMainWindow):
         )
 
         self._filters_btn = QPushButton("Filters…")
+        self._filters_btn.setShortcut("Ctrl+L")
+        self._filters_btn.setToolTip("Edit exclusion filters (Ctrl+L)")
         self._filters_btn.clicked.connect(self._edit_filters)
         self._sync_btn = QToolButton()
         self._sync_btn.setText("Sync")
@@ -275,9 +337,13 @@ class MainWindow(QMainWindow):
         profiles_btn = QPushButton("Profiles…")
         profiles_btn.clicked.connect(self._edit_profiles)
         self._compare_btn = QPushButton("Compare")
+        self._compare_btn.setShortcut("F6")
+        self._compare_btn.setToolTip("Run the comparison (F6)")
         self._compare_btn.clicked.connect(self._start)
         self._cancel_btn = QPushButton("Cancel")
         self._cancel_btn.setEnabled(False)
+        self._cancel_btn.setShortcut(QKeySequence(Qt.Key.Key_Escape))
+        self._cancel_btn.setToolTip("Cancel the running comparison (Esc)")
         self._cancel_btn.clicked.connect(self._cancel)
 
         self._folder_view = FolderCompareView()
@@ -295,6 +361,7 @@ class MainWindow(QMainWindow):
             self._mtime_check,
             self._tolerance,
             self._content_combo,
+            self._skip_equal_check,
             self._case_check,
             self._clock_check,
         ):
@@ -326,6 +393,29 @@ class MainWindow(QMainWindow):
         self._left_picker.set_profiles(self._profiles)
         self._right_picker.set_profiles(self._profiles)
         self._build_menus()
+        self._build_shortcuts()
+
+    # --- shortcuts --------------------------------------------------------------
+
+    def _build_shortcuts(self) -> None:
+        """Window-level shortcuts for tab management. Per-view shortcuts (diff
+        navigation, copy, save, …) live in the views themselves so they dispatch
+        to whichever tab is active."""
+        for sequence, slot in (
+            ("Ctrl+W", self._close_current_tab),
+            ("Ctrl+Tab", lambda: self._step_tab(+1)),
+            ("Ctrl+Shift+Tab", lambda: self._step_tab(-1)),
+            ("Ctrl+1", lambda: self._tabs.setCurrentIndex(0)),
+        ):
+            QShortcut(QKeySequence(sequence), self).activated.connect(slot)
+
+    def _close_current_tab(self) -> None:
+        self._close_tab(self._tabs.currentIndex())
+
+    def _step_tab(self, step: int) -> None:
+        count = self._tabs.count()
+        if count:
+            self._tabs.setCurrentIndex((self._tabs.currentIndex() + step) % count)
 
     # --- menus ------------------------------------------------------------------
 
@@ -360,6 +450,8 @@ class MainWindow(QMainWindow):
         manual_action.triggered.connect(lambda: self._show_doc("User Manual", "MANUAL.md"))
         notes_action = help_menu.addAction("Release Notes")
         notes_action.triggered.connect(lambda: self._show_doc("Release Notes", "RELEASE-NOTES.md"))
+        shortcuts_action = help_menu.addAction("Keyboard Shortcuts")
+        shortcuts_action.triggered.connect(self._show_shortcuts)
         help_menu.addSeparator()
         log_action = help_menu.addAction("Open Log Folder")
         log_action.triggered.connect(self._open_log_folder)
@@ -369,6 +461,9 @@ class MainWindow(QMainWindow):
 
     def _show_doc(self, title: str, name: str) -> None:
         HelpDialog(title, doc_path(name), parent=self).show()
+
+    def _show_shortcuts(self) -> None:
+        HelpDialog("Keyboard Shortcuts", markdown_text=SHORTCUTS_MARKDOWN, parent=self).show()
 
     def _open_log_folder(self) -> None:
         directory = log_dir()
@@ -414,6 +509,7 @@ class MainWindow(QMainWindow):
             use_mtime=options.use_mtime,
             mtime_tolerance=options.mtime_tolerance,
             content=options.content.value,
+            skip_content_if_metadata_matches=options.skip_content_if_metadata_matches,
             case_sensitive=options.case_sensitive,
             correct_clock_offset=self._clock_check.isChecked(),
         )
@@ -431,6 +527,7 @@ class MainWindow(QMainWindow):
         self._tolerance.setValue(session.mtime_tolerance)
         index = self._content_combo.findData(ContentMode(session.content))
         self._content_combo.setCurrentIndex(max(index, 0))
+        self._skip_equal_check.setChecked(session.skip_content_if_metadata_matches)
         self._case_check.setChecked(session.case_sensitive)
         self._clock_check.setChecked(session.correct_clock_offset)
         self._exclude = session.exclude_filters()
@@ -484,6 +581,7 @@ class MainWindow(QMainWindow):
             use_mtime=self._mtime_check.isChecked(),
             mtime_tolerance=self._tolerance.value(),
             content=self._content_combo.currentData(),
+            skip_content_if_metadata_matches=self._skip_equal_check.isChecked(),
             case_sensitive=self._case_check.isChecked(),
             exclude=self._exclude,
         )
@@ -758,6 +856,9 @@ class MainWindow(QMainWindow):
         view.refresh_requested.connect(  # emitted on the UI thread
             lambda v=view, rel=rel_path: self._start_diff_load(v, rel, "text")
         )
+        view.dirty_changed.connect(  # emitted on the UI thread (edits / saves)
+            lambda dirty, v=view: self._set_tab_dirty(v, dirty)
+        )
         view.set_data(data.left, data.right)
         self._swap_tab(target, view)
 
@@ -809,16 +910,47 @@ class MainWindow(QMainWindow):
     def _prune_text_threads(self) -> None:
         self._text_threads = [t for t in self._text_threads if t.isRunning()]
 
+    def _set_tab_dirty(self, view: QWidget, dirty: bool) -> None:
+        """Mark a diff tab with a leading ``*`` while it has unsaved edits."""
+        index = self._tabs.indexOf(view)
+        if index < 0:
+            return
+        text = self._tabs.tabText(index)
+        base = text[2:] if text.startswith("* ") else text
+        self._tabs.setTabText(index, f"* {base}" if dirty else base)
+
     def _close_tab(self, index: int) -> None:
         if index == 0:
             return
         widget = self._tabs.widget(index)
+        if isinstance(widget, TextCompareView) and widget.has_unsaved_changes():
+            choice = widget.prompt_unsaved("closing")
+            if choice == QMessageBox.StandardButton.Cancel:
+                return
+            if choice == QMessageBox.StandardButton.Save:
+                widget.save_all_unsaved()
         self._tabs.removeTab(index)
         widget.deleteLater()
 
     # --- shutdown -------------------------------------------------------------------
 
+    def _confirm_unsaved_on_exit(self) -> bool:
+        """Prompt for each diff tab with unsaved edits. Returns False to abort exit."""
+        for index in range(1, self._tabs.count()):
+            widget = self._tabs.widget(index)
+            if isinstance(widget, TextCompareView) and widget.has_unsaved_changes():
+                self._tabs.setCurrentIndex(index)
+                choice = widget.prompt_unsaved("exiting")
+                if choice == QMessageBox.StandardButton.Cancel:
+                    return False
+                if choice == QMessageBox.StandardButton.Save:
+                    widget.save_all_unsaved()
+        return True
+
     def closeEvent(self, event: QCloseEvent) -> None:
+        if not self._confirm_unsaved_on_exit():
+            event.ignore()
+            return
         if self._compare_worker is not None:
             self._compare_worker.cancel_event.set()
         if self._ops_worker is not None:

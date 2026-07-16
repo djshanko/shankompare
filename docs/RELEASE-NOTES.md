@@ -1,5 +1,19 @@
 # shankompare — Release Notes
 
+## 0.3.3 — 2026-07-16
+
+**New features**
+
+- **Keyboard shortcuts across every view.** Refresh (F5), run/cancel comparison (F6/Esc), prev/next difference (F7/F8), copy to left/right (Alt+←/Alt+→), save the focused pane (Ctrl+S), close/switch tabs (Ctrl+W, Ctrl+Tab), and more — the full list is under **Help → Keyboard Shortcuts** and in the manual. View-specific keys act on whichever tab is in front.
+- **Undo/redo in text compare.** Undo/Redo buttons and Ctrl+Z / Ctrl+Y act on the focused pane's edits in Edit mode.
+- **Unsaved-edit protection in text compare.** A tab whose pane has unsaved edits shows a leading `*` in its title, and closing or refreshing that tab — or quitting the app — asks whether to save or discard, so edits can't be lost by accident.
+
+**Changed**
+
+- **Content check is now authoritative when it runs, and mtime differences no longer force a "different" verdict.** Previously an enabled content check still marked a pair *different* purely because their modified times differed. Now, with a content check on: a size mismatch is *different* without a read (different sizes prove different bytes), but a differing modified time triggers a read and the bytes decide — so an identical file that got a fresh timestamp on an SFTP copy is correctly reported the same.
+- **New "Skip content if size+time match" option** (next to the content dropdown, on by default). When on, a pair whose size *and* modified time already agree is taken as equal without reading it — content is not re-run on files the folder tab already shows as matching. Uncheck it to force a full content read on every pair, catching same-size, same-time files whose bytes differ. Pairs whose time differs are read either way. Saved with sessions.
+- **Content check now defaults to CRC32** (was "No content check"). New comparisons verify content by CRC32 out of the box; switch back to "No content check" or byte-by-byte in the dropdown as needed.
+
 ## 0.3.2 — 2026-07-16
 
 **New features**

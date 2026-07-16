@@ -117,9 +117,11 @@ def test_dir_vs_file_mismatch():
 
 @pytest.mark.parametrize("mode", [ContentMode.CRC32, ContentMode.BYTES])
 def test_content_difference_with_equal_size_and_mtime(mode):
+    # With the skip shortcut off, matching size+mtime still gets a content read,
+    # so a same-size, same-mtime but different-content pair is caught.
     left = make_fs({"a.bin": b"AAAA"})
     right = make_fs({"a.bin": b"AAAB"})
-    options = CompareOptions(content=mode)
+    options = CompareOptions(content=mode, skip_content_if_metadata_matches=False)
     root = run_compare(left, right, options)
     assert find(root, "a.bin").status is Status.DIFFERENT
 
@@ -128,7 +130,8 @@ def test_content_difference_with_equal_size_and_mtime(mode):
 def test_content_equal(mode):
     left = make_fs({"a.bin": b"same bytes"})
     right = make_fs({"a.bin": b"same bytes"})
-    root = run_compare(left, right, CompareOptions(content=mode))
+    options = CompareOptions(content=mode, skip_content_if_metadata_matches=False)
+    root = run_compare(left, right, options)
     assert find(root, "a.bin").status is Status.SAME
 
 
@@ -137,6 +140,51 @@ def test_content_pass_skipped_when_size_already_differs():
     right = make_fs({"a.bin": b"much larger"})
     events = list(compare_folders(left, right, CompareOptions(content=ContentMode.BYTES)))
     assert not [e for e in events if isinstance(e, ContentChecked)]
+
+
+def test_content_read_when_only_mtime_differs_reports_same():
+    # Same size and bytes but a mtime beyond tolerance: the mtime difference
+    # alone must not report DIFFERENT — content is read and confirms SAME.
+    left = make_fs({"a.bin": b"identical"})
+    right = make_fs({"a.bin": b"identical"})
+    right.set_mtime("a.bin", datetime(2026, 1, 1, 12, 0, 10, tzinfo=UTC))
+    options = CompareOptions(content=ContentMode.BYTES)  # skip shortcut on (default)
+    events = list(compare_folders(left, right, options))
+    assert [e for e in events if isinstance(e, ContentChecked)]  # it was read
+    assert find(events[-1].root, "a.bin").status is Status.SAME
+
+
+def test_skip_shortcut_takes_matching_metadata_as_equal_without_reading():
+    # Size and mtime agree, but the bytes differ: with the skip shortcut on
+    # (default) the pair is taken as SAME and never read.
+    left = make_fs({"a.bin": b"AAAA"})
+    right = make_fs({"a.bin": b"AAAB"})  # same size + mtime, different bytes
+    events = list(compare_folders(left, right, CompareOptions(content=ContentMode.BYTES)))
+    assert not [e for e in events if isinstance(e, ContentChecked)]
+    assert find(events[-1].root, "a.bin").status is Status.SAME
+
+
+def test_content_read_when_mtime_off_and_size_matches():
+    # Modified time not a criterion: content is authoritative, so same-size
+    # pairs are read regardless of mtime, and equal bytes report SAME.
+    left = make_fs({"a.bin": b"same"})
+    right = make_fs({"a.bin": b"same"})
+    right.set_mtime("a.bin", datetime(2026, 1, 1, 12, 0, 10, tzinfo=UTC))
+    options = CompareOptions(use_mtime=False, content=ContentMode.BYTES)
+    events = list(compare_folders(left, right, options))
+    assert [e for e in events if isinstance(e, ContentChecked)]
+    assert find(events[-1].root, "a.bin").status is Status.SAME
+
+
+def test_content_gated_by_size_even_when_size_check_off():
+    # Size checkbox off, but content only reads pairs whose size matches;
+    # a size mismatch is DIFFERENT without a content pass.
+    left = make_fs({"a.bin": b"tiny"})
+    right = make_fs({"a.bin": b"much larger"})
+    options = CompareOptions(use_size=False, content=ContentMode.BYTES)
+    events = list(compare_folders(left, right, options))
+    assert not [e for e in events if isinstance(e, ContentChecked)]
+    assert find(events[-1].root, "a.bin").status is Status.DIFFERENT
 
 
 def test_case_insensitive_alignment():
@@ -178,7 +226,7 @@ def test_baseline_reuse_skips_unchanged_file():
     # while a plain compare would notice the byte difference.
     left = make_fs({"a.bin": b"AAAA"})
     right = make_fs({"a.bin": b"AAAA"})
-    options = CompareOptions(content=ContentMode.BYTES)
+    options = CompareOptions(content=ContentMode.BYTES, skip_content_if_metadata_matches=False)
     baseline = run_compare(left, right, options)
     assert find(baseline, "a.bin").status is Status.SAME
 
@@ -196,7 +244,7 @@ def test_baseline_reuse_rechecks_modified_file():
     later = datetime(2026, 1, 1, 12, 0, 5, tzinfo=UTC)
     left = make_fs({"a.bin": b"AAAA"})
     right = make_fs({"a.bin": b"AAAB"})
-    options = CompareOptions(content=ContentMode.BYTES)
+    options = CompareOptions(content=ContentMode.BYTES, skip_content_if_metadata_matches=False)
     baseline = run_compare(left, right, options)
     assert find(baseline, "a.bin").status is Status.DIFFERENT
 

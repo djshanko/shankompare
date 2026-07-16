@@ -1,6 +1,6 @@
 # shankompare — User Manual
 
-shankompare compares folders and files side by side — between local disks, SFTP servers, and archive files — and lets you copy, delete, edit, and synchronize the differences. This manual covers version 0.3.2.
+shankompare compares folders and files side by side — between local disks, SFTP servers, and archive files — and lets you copy, delete, edit, and synchronize the differences. This manual covers version 0.3.3.
 
 ## 1. Getting started
 
@@ -23,7 +23,7 @@ Two files with the same name count as *different* when any enabled criterion say
 - **Size** — byte sizes differ.
 - **Modified time** — mtimes differ by more than the tolerance (default 2 s; SFTP and FAT store whole seconds).
 - **Adjust remote clock** (SFTP only, off by default) — when a remote file's modified time is stamped by the *server's own clock* and that clock is wrong or unsynced, every such file looks modified. Tick this to have shankompare measure the offset on connect (by timestamping a temporary probe file in the remote root) and subtract it from remote mtimes. Leave it **off** if your remote files already carry correct times (e.g. they were uploaded with timestamps preserved), otherwise the correction would shift good times and *create* differences. Needs a writable remote root; if the probe can't write, no adjustment is made. The measured offset is written to the log (see Troubleshooting).
-- **Content** — CRC32 or byte-by-byte. Files that pass the cheap checks are verified by content in a second pass.
+- **Content** — CRC32 (the default) or byte-by-byte. When a content check is on the bytes are authoritative: a size mismatch is *different* without a read, but a differing modified time alone is **not** — the files are read and their contents decide, so an identical file that got a fresh timestamp (common after an SFTP copy) is reported the same. **Skip content if size+time match** (on by default) is a shortcut: a pair whose size *and* modified time already agree is taken as equal without reading it. Uncheck it to force a full read on every pair, catching same-size, same-time files whose bytes differ; pairs whose time differs are read either way.
 - **Case sensitive** — controls whether `README.txt` and `readme.txt` are the same entry.
 
 **Filters…** opens the exclusion filters: name patterns (`*.log __pycache__` — they match files *and* folders, case-insensitively), a file-size range, and a modified-date window. Excluded entries are invisible to the comparison and to sync. A ● on the button means filters are active. Filters are saved with sessions.
@@ -55,8 +55,8 @@ Side-by-side view with changed lines shaded and the changed characters within th
 - **Only differences** hides unchanged regions (adjustable context).
 - **Ignore whitespace** ignores leading/trailing whitespace when matching lines.
 - **Copy section ◀ / ▶** copies the difference under the cursor to the other side.
-- **Edit** makes both panes editable; the comparison re-runs as you type. **Save left/right** writes back preserving the original encoding, BOM, and line endings.
-- **Refresh** reloads both files (blocked while you have unsaved edits).
+- **Edit** makes both panes editable; the comparison re-runs as you type. **Save left/right** writes back preserving the original encoding, BOM, and line endings. **Undo/Redo** (Ctrl+Z / Ctrl+Y) act on the focused pane.
+- **Refresh** reloads both files. While a pane has unsaved edits, the tab title shows a leading `*`, and closing or refreshing the tab asks whether to save or discard.
 
 Files up to 32 MiB are supported.
 
@@ -72,7 +72,55 @@ The **Session** menu saves the current setup — both sides, all criteria, and e
 
 **View → Theme**: *System* follows the OS, *Light*/*Dark* force a look (using Qt's Fusion style so the choice works on every platform, including Windows 10). All difference colors adapt.
 
-## 10. Troubleshooting
+## 10. Keyboard shortcuts
+
+Every shortcut is also listed under **Help → Keyboard Shortcuts**. View-specific keys act on whichever tab is in front, so the same key does the matching thing in each view (e.g. F7/F8 always step to the previous/next difference).
+
+**Anywhere**
+
+| Action | Shortcut |
+| --- | --- |
+| Refresh the active view | F5 |
+| Close current tab | Ctrl+W |
+| Next / Previous tab | Ctrl+Tab / Ctrl+Shift+Tab |
+| Jump to the Folders tab | Ctrl+1 |
+
+**Folders tab**
+
+| Action | Shortcut |
+| --- | --- |
+| Run comparison | F6 |
+| Cancel comparison | Esc |
+| Previous / Next difference | F7 / F8 |
+| Copy selection to left / right | Alt+← / Alt+→ |
+| Delete selection on left / right | Ctrl+Del / Ctrl+Shift+Del |
+| Open selected pair | Enter |
+| Rename selected | F2 |
+| Expand all / Collapse all | Ctrl+E / Ctrl+Shift+E |
+| Edit filters | Ctrl+L |
+
+**Text compare tab**
+
+| Action | Shortcut |
+| --- | --- |
+| Previous / Next difference | F7 / F8 |
+| Copy section to left / right | Alt+← / Alt+→ |
+| Undo / Redo in the focused pane | Ctrl+Z / Ctrl+Y |
+| Save the focused pane | Ctrl+S |
+| Toggle Edit / Ignore whitespace / Only differences | Ctrl+E / Ctrl+I / Ctrl+D |
+| Reload both files | F5 |
+
+**Hex compare tab**
+
+| Action | Shortcut |
+| --- | --- |
+| Previous / Next difference | F7 / F8 |
+| Toggle Only differences | Ctrl+D |
+| Reload both files | F5 |
+
+Deletes always ask for confirmation first, and Save is enabled only when the focused pane has unsaved edits — so the destructive keys can't fire by accident.
+
+## 11. Troubleshooting
 
 - **Wrong password** — shankompare discards the stored secret and re-prompts, then retries automatically.
 - **Connection lost** — you're offered a Retry.

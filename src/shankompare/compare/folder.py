@@ -95,12 +95,21 @@ class CompareOptions:
     With ``case_sensitive=False``, entries are aligned by casefolded name;
     if one side contains two names differing only in case, only one of them
     is aligned (the other appears as an orphan).
+
+    When ``content`` is not ``NONE`` the bytes are authoritative: a size
+    mismatch means DIFFERENT without a read, but a mtime difference alone does
+    not — the files are read and their contents decide (so an identical file
+    with a shifted timestamp, common after an SFTP copy, is reported the same).
+    ``skip_content_if_metadata_matches`` is a shortcut: when it is true a pair
+    whose size *and* mtime already agree is taken as equal without reading;
+    set it false to force a content read even for metadata-matching pairs.
     """
 
     use_size: bool = True
     use_mtime: bool = True
     mtime_tolerance: float = 2.0
     content: ContentMode = ContentMode.NONE
+    skip_content_if_metadata_matches: bool = True
     case_sensitive: bool = True
     exclude: ExcludeFilters = field(default_factory=ExcludeFilters)
 
@@ -279,14 +288,24 @@ def _scan_dir(
 
 
 def _compare_cheap(left: EntryInfo, right: EntryInfo, options: CompareOptions) -> Status:
-    if options.use_size and left.size != right.size:
+    size_same = left.size == right.size
+    mtime_same = abs((left.mtime - right.mtime).total_seconds()) <= options.mtime_tolerance
+    if options.use_size and not size_same:
         return Status.DIFFERENT
-    if options.use_mtime:
-        delta = abs((left.mtime - right.mtime).total_seconds())
-        if delta > options.mtime_tolerance:
-            return Status.DIFFERENT
     if options.content is not ContentMode.NONE:
+        # Content is authoritative when read. Differing sizes already prove the
+        # bytes differ, so never read those. A differing mtime does not: read
+        # and let the contents decide (an identical file copied over SFTP often
+        # gets a fresh timestamp). As a shortcut, a pair whose size and mtime
+        # already agree is taken as equal without reading — unless the user
+        # turned that off to force a full content check on every pair.
+        if not size_same:
+            return Status.DIFFERENT
+        if options.skip_content_if_metadata_matches and options.use_mtime and mtime_same:
+            return Status.SAME
         return Status.UNKNOWN  # needs the content pass
+    if options.use_mtime and not mtime_same:
+        return Status.DIFFERENT
     return Status.SAME
 
 

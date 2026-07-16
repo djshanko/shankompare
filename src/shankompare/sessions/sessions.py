@@ -29,7 +29,8 @@ class Session:
     use_size: bool = True
     use_mtime: bool = True
     mtime_tolerance: float = 2.0
-    content: str = "none"  # ContentMode value
+    content: str = "crc32"  # ContentMode value
+    skip_content_if_metadata_matches: bool = True
     case_sensitive: bool = True
     correct_clock_offset: bool = False  # adjust SFTP mtimes for server clock skew
     exclude_globs: list[str] = field(default_factory=list)

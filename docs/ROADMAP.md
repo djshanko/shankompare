@@ -54,6 +54,16 @@ Small enhancement on top of M4 (not a milestone):
 - SFTP **remote clock-offset correction** (opt-in *Adjust remote clock*): the server clock is measured on connect and its skew subtracted from remote modified times, for servers that stamp files with their own (skewed) clock.
 - **Log file** (`shankompare.log`, rotating) with an Open Log Folder entry in the Help menu.
 
+## 0.3.3 — QoL patch ✅ (done 2026-07-16)
+
+Small enhancement on top of M4 (not a milestone):
+
+- **Content-check gating rework**: content is authoritative when on — a size mismatch is *different* without a read, but a differing modified time triggers a read instead of a false *different* (fixes identical SFTP files that got a fresh timestamp reporting different).
+- New **Skip content if size+time match** option (on by default; saved with sessions) to trust matching metadata, or force a full read on every pair.
+- Content check now **defaults to CRC32** (was off).
+- **Keyboard shortcuts** across all views (folder, text, hex) plus global tab management, listed under Help → Keyboard Shortcuts and in the manual.
+- **Text-compare undo/redo** (buttons + Ctrl+Z / Ctrl+Y on the focused pane) and **unsaved-edit protection**: a `*` in the tab title while edits are pending, with a save/discard prompt when closing or refreshing the tab or quitting the app.
+
 ## M5+ — Backlog (future)
 
 Ordered by expected value, not committed:

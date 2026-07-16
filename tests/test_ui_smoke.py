@@ -222,6 +222,64 @@ def test_text_edit_mode_recompare_and_copy_section(app):
     assert not view._dirty["right"]
 
 
+def test_text_dirty_signal_and_undo(app):
+    view = TextCompareView("left.txt", "right.txt")
+    view.set_data(decode_bytes(b"one\ntwo\nthree"), decode_bytes(b"one\ntwo\nthree"))
+
+    dirty_states: list[bool] = []
+    view.dirty_changed.connect(dirty_states.append)
+
+    view._edit_check.setChecked(True)
+    assert view._undo_btn.isEnabled() and view._redo_btn.isEnabled()
+    assert not view.has_unsaved_changes()
+
+    # an interactive insert (undoable, unlike setPlainText) at end of the pane
+    from PySide6.QtGui import QTextCursor
+
+    cursor = view._left_pane.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    view._left_pane.setTextCursor(cursor)
+    view._left_pane.insertPlainText(" EXTRA")
+    view._on_edited()
+    assert view.has_unsaved_changes()
+    assert dirty_states == [True]  # a single edge, not one per keystroke
+
+    # undo targets the focused pane and restores its content
+    view._left_pane.setFocus()
+    view._undo()
+    assert view._left_pane.toPlainText() == "one\ntwo\nthree"
+
+    # saving clears the dirty state and emits the falling edge
+    view.mark_saved("left")
+    assert not view.has_unsaved_changes()
+    assert dirty_states == [True, False]
+
+
+def test_text_tab_star_tracks_unsaved(app, tmp_path):
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    left.mkdir()
+    right.mkdir()
+    (left / "a.txt").write_text("one")
+    (right / "a.txt").write_text("two")
+
+    window = MainWindow()
+    window._sides = (LocalSide(str(left)), LocalSide(str(right)))
+    view = TextCompareView("Left: a.txt", "Right: a.txt")
+    view.dirty_changed.connect(lambda dirty, v=view: window._set_tab_dirty(v, dirty))
+    index = window._tabs.addTab(view, "a.txt")
+    view.set_data(decode_bytes(b"one"), decode_bytes(b"two"))
+
+    view._edit_check.setChecked(True)
+    view._left_pane.setPlainText("edited")
+    view._on_edited()
+    assert window._tabs.tabText(index) == "* a.txt"
+
+    view.mark_saved("left")
+    assert window._tabs.tabText(index) == "a.txt"
+    window.close()
+
+
 def test_file_ops_worker_copy_and_delete(app, tmp_path):
     from shankompare.ui.worker import FileOpsWorker
     from shankompare.vfs.ops import FileOp, OpKind

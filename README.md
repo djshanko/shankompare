@@ -6,13 +6,13 @@ Built as a personal, trimmed-down alternative to Beyond Compare 5: instead of re
 
 ## Features
 
-### Current (v0.3.2)
+### Current (v0.3.3)
 
 - **Folder compare** — live-streaming side-by-side tree of two folders (local ↔ local, local ↔ SFTP, SFTP ↔ SFTP) with color-highlighted differences, display filters, next/previous-difference navigation, expand/collapse all, and a fast Refresh that only re-reads files whose size or modified time changed
 - **SFTP support** — named connection profiles, password and private-key authentication, credentials in the OS keyring, remote folder browser, automatic re-prompt on auth failure, and an opt-in remote-clock-offset correction for servers whose clock skews modified times
-- **Flexible comparison criteria** — last modified time (with tolerance), size, file content (CRC32 or byte-by-byte), filename case sensitivity, plus exclusion filters (name globs, size range, date window)
+- **Flexible comparison criteria** — last modified time (with tolerance), size, file content (CRC32 by default, or byte-by-byte; authoritative when on, so a mere timestamp difference triggers a read rather than a false "different"), filename case sensitivity, plus exclusion filters (name globs, size range, date window)
 - **Synchronization** — mirror either direction or update both sides (newer wins), always with a confirmed plan first
-- **Text compare** — side-by-side diff with within-line highlighting, line-number gutters, encoding/EOL detection, show-only-differences, inline editing with live recompare, copy sections between sides, save back preserving encoding
+- **Text compare** — side-by-side diff with within-line highlighting, line-number gutters, encoding/EOL detection, show-only-differences, inline editing with live recompare and undo/redo, copy sections between sides, save back preserving encoding, and unsaved-edit protection (`*` tab marker plus a save/discard prompt on close, refresh, or exit)
 - **Hex compare** — binary files open as a side-by-side hex dump with per-byte difference highlighting
 - **Archives as folders** — compare `.zip`/`.tar[.gz|.bz2|.xz]` files (local or SFTP) read-only as if they were folders
 - **File operations** — copy, delete, rename, and timestamp sync straight from the folder tree, queued in the background with progress
