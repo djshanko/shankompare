@@ -1,6 +1,6 @@
 # shankompare — User Manual
 
-shankompare compares folders and files side by side — between local disks, SFTP servers, and archive files — and lets you copy, delete, edit, and synchronize the differences. This manual covers version 0.3.3.
+shankompare compares folders and files side by side — between local disks, SFTP servers, and archive files — and lets you copy, delete, edit, and synchronize the differences. This manual covers version 0.3.4.
 
 ## 1. Getting started
 
@@ -26,16 +26,26 @@ Two files with the same name count as *different* when any enabled criterion say
 - **Content** — CRC32 (the default) or byte-by-byte. When a content check is on the bytes are authoritative: a size mismatch is *different* without a read, but a differing modified time alone is **not** — the files are read and their contents decide, so an identical file that got a fresh timestamp (common after an SFTP copy) is reported the same. **Skip content if size+time match** (on by default) is a shortcut: a pair whose size *and* modified time already agree is taken as equal without reading it. Uncheck it to force a full read on every pair, catching same-size, same-time files whose bytes differ; pairs whose time differs are read either way.
 - **Case sensitive** — controls whether `README.txt` and `readme.txt` are the same entry.
 
-**Filters…** opens the exclusion filters: name patterns (`*.log __pycache__` — they match files *and* folders, case-insensitively), a file-size range, and a modified-date window. Excluded entries are invisible to the comparison and to sync. A ● on the button means filters are active. Filters are saved with sessions.
+**Filters…** opens the filters dialog:
+
+- **Include names** — when set, only files whose name matches one of these patterns are compared (`*.py *.txt`). Leave it empty to include everything. Folders are never filtered out by include patterns, so subfolders are still walked and their matching files found.
+- **Exclude names** — patterns that remove entries (`*.log __pycache__`); unlike include patterns these match files *and* folders. **Exclusions win**: a name matching both an include and an exclude pattern is excluded.
+- A **file-size range** and a **modified-date window**, both applied to files only.
+
+All name matching is case-insensitive. Patterns are separated by spaces, commas or semicolons; when a name itself contains a space, wrap the pattern in double quotes — `*.log "My Documents" "weekly report*.xlsx"`.
+
+Filtered-out entries are invisible to the comparison and to sync. A ● on the button means filters are active. Filters are saved with sessions.
 
 ## 4. Working with results
 
-- **Show** dropdown filters the tree (differences only, orphans, modified).
+- **Show** filters the tree by result category. Click it and tick any combination of **Unchanged**, **Modified**, **Left orphans** and **Right orphans** — the button text summarizes what is showing. Two presets at the bottom of the menu set the common cases: **All** and **Differences only**. A folder stays visible whenever any file inside it matches, and files still being compared always show, so nothing blinks out of the tree mid-scan.
 - **Refresh** re-scans the sides but only re-reads content for files whose size or modified time changed since the last comparison — much faster than a full **Compare** on large or remote trees. File operations (copy/delete/…) use this same fast refresh when the queue finishes, so only the files they touched are re-checked.
 - **Expand all / Collapse all** open or close every folder in the tree.
 - **Prev/Next diff** jump between differing files.
 - **Double-click** a file pair to open it in a compare tab — text or hex is chosen automatically. Right-click → *Compare as text* / *Compare as hex* to force one.
+- A file that exists on **only one side** opens the same way (double-click, Enter, or right-click → *Open as text* / *Open as hex*). The side it is missing from shows as an empty pane, labelled *(missing)*, so you can read the content and, in Edit mode, save it across to create the file.
 - **Right-click** offers file operations: copy to the other side, delete, rename, copy timestamp. Multi-select works. Operations run in a background queue with progress in the status bar, and the comparison re-runs when the queue finishes. Deletes always ask first.
+- **Right-click → Copy left path / Copy right path** puts the selected entries' full paths on the clipboard, one per line. Local paths use the platform's native form; SFTP paths stay plain remote paths, so they can be pasted straight back into a path box.
 - Archive sides are **read-only**: operations that would modify one fail with a clear message.
 
 ## 5. Synchronization
@@ -66,7 +76,9 @@ Binary files (detected by NUL bytes, or forced via right-click) open as a classi
 
 ## 8. Sessions
 
-The **Session** menu saves the current setup — both sides, all criteria, and exclusion filters — under a name, and loads it back with one click. Sessions live in `sessions.json` in the config folder (`%APPDATA%\shankompare` on Windows, `~/.config/shankompare` on Ubuntu); passwords stay in the keyring.
+The **Session** menu saves the current setup — both sides, all criteria, and include/exclude filters — under a name, and loads it back with one click.
+
+**Session → Save current…** asks for the name and lists the sessions already saved. Click one to reuse its name (the button changes to **Overwrite**) and confirm when asked, or type a new name to add one. Sessions live in `sessions.json` in the config folder (`%APPDATA%\shankompare` on Windows, `~/.config/shankompare` on Ubuntu); passwords stay in the keyring.
 
 ## 9. Themes
 
@@ -94,7 +106,7 @@ Every shortcut is also listed under **Help → Keyboard Shortcuts**. View-specif
 | Previous / Next difference | F7 / F8 |
 | Copy selection to left / right | Alt+← / Alt+→ |
 | Delete selection on left / right | Ctrl+Del / Ctrl+Shift+Del |
-| Open selected pair | Enter |
+| Open selected file | Enter |
 | Rename selected | F2 |
 | Expand all / Collapse all | Ctrl+E / Ctrl+Shift+E |
 | Edit filters | Ctrl+L |

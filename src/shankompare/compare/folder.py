@@ -6,6 +6,7 @@ Cheap criteria (size, mtime) are applied during the walk; content comparison
 runs as a second pass so the tree shape appears quickly. No Qt here.
 """
 
+import re
 import threading
 import zlib
 from collections import deque
@@ -43,16 +44,42 @@ def parse_size(text: str) -> int | None:
     return int(value * _SIZE_SUFFIXES[suffix])
 
 
-@dataclass(frozen=True)
-class ExcludeFilters:
-    """Entries removed from a comparison before alignment.
+def parse_globs(text: str) -> tuple[str, ...]:
+    """Split a user-entered pattern list into globs.
 
-    ``name_globs`` exclude files *and* folders by name (case-insensitive
-    fnmatch). The size and mtime bounds are include-ranges applied to files
-    only: a file outside the range is excluded; folders always pass them.
+    Patterns are separated by whitespace, commas or semicolons. A pattern
+    whose name contains a separator is written in double quotes
+    (``"My Documents"``); an unbalanced quote is taken literally rather than
+    rejected, so typing never fails mid-edit.
+    """
+    globs: list[str] = []
+    for quoted, bare in re.findall(r'"([^"]*)"|([^\s,;]+)', text):
+        pattern = quoted or bare
+        if pattern:
+            globs.append(pattern)
+    return tuple(globs)
+
+
+def format_globs(globs: tuple[str, ...]) -> str:
+    """Render globs back into a single editable line (inverse of parse_globs)."""
+    return " ".join(f'"{g}"' if re.search(r'[\s,;"]', g) else g for g in globs)
+
+
+@dataclass(frozen=True)
+class CompareFilters:
+    """Entries kept in / removed from a comparison before alignment.
+
+    ``exclude_globs`` remove files *and* folders by name (case-insensitive
+    fnmatch). ``include_globs`` restrict which *files* are compared — an empty
+    tuple includes everything, and folders always pass so subtrees are still
+    walked. Exclusions win: a name matching both is excluded.
+
+    The size and mtime bounds are include-ranges applied to files only: a file
+    outside the range is excluded; folders always pass them.
     """
 
-    name_globs: tuple[str, ...] = ()
+    exclude_globs: tuple[str, ...] = ()
+    include_globs: tuple[str, ...] = ()
     min_size: int | None = None
     max_size: int | None = None
     modified_after: datetime | None = None
@@ -60,11 +87,15 @@ class ExcludeFilters:
 
     def passes(self, entry: EntryInfo) -> bool:
         name = entry.name.casefold()
-        for pattern in self.name_globs:
+        for pattern in self.exclude_globs:
             if fnmatchcase(name, pattern.casefold()):
                 return False
         if entry.is_dir:
             return True
+        if self.include_globs and not any(
+            fnmatchcase(name, pattern.casefold()) for pattern in self.include_globs
+        ):
+            return False
         if self.min_size is not None and entry.size < self.min_size:
             return False
         if self.max_size is not None and entry.size > self.max_size:
@@ -111,7 +142,7 @@ class CompareOptions:
     content: ContentMode = ContentMode.NONE
     skip_content_if_metadata_matches: bool = True
     case_sensitive: bool = True
-    exclude: ExcludeFilters = field(default_factory=ExcludeFilters)
+    filters: CompareFilters = field(default_factory=CompareFilters)
 
 
 @dataclass
@@ -248,8 +279,8 @@ def _scan_dir(
         node.error = str(exc)
         return
 
-    left_entries = [e for e in left_entries if options.exclude.passes(e)]
-    right_entries = [e for e in right_entries if options.exclude.passes(e)]
+    left_entries = [e for e in left_entries if options.filters.passes(e)]
+    right_entries = [e for e in right_entries if options.filters.passes(e)]
 
     def key(name: str) -> str:
         return name if options.case_sensitive else name.casefold()

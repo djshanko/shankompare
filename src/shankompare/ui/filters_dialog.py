@@ -1,6 +1,4 @@
-"""Dialog for editing exclusion filters (name globs, size range, mtime window)."""
-
-import re
+"""Dialog for editing comparison filters (name globs, size range, mtime window)."""
 
 from PySide6.QtCore import QDateTime
 from PySide6.QtWidgets import (
@@ -17,7 +15,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from shankompare.compare import ExcludeFilters, parse_size
+from shankompare.compare import CompareFilters, format_globs, parse_globs, parse_size
 
 
 def _format_size(value: int | None) -> str:
@@ -30,13 +28,15 @@ def _format_size(value: int | None) -> str:
 
 
 class FiltersDialog(QDialog):
-    def __init__(self, filters: ExcludeFilters, parent=None):
+    def __init__(self, filters: CompareFilters, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Exclusion Filters")
-        self._result: ExcludeFilters | None = None
+        self.setWindowTitle("Filters")
+        self._result: CompareFilters | None = None
 
-        self._globs = QLineEdit(" ".join(filters.name_globs))
-        self._globs.setPlaceholderText("e.g. *.log __pycache__ *.tmp")
+        self._include_globs = QLineEdit(format_globs(filters.include_globs))
+        self._include_globs.setPlaceholderText('e.g. *.py *.txt "weekly report*.xlsx"')
+        self._globs = QLineEdit(format_globs(filters.exclude_globs))
+        self._globs.setPlaceholderText('e.g. *.log __pycache__ "My Documents"')
         self._min_size = QLineEdit(_format_size(filters.min_size))
         self._min_size.setPlaceholderText("e.g. 1k — empty = no limit")
         self._max_size = QLineEdit(_format_size(filters.max_size))
@@ -65,6 +65,7 @@ class FiltersDialog(QDialog):
             check.toggled.connect(edit.setEnabled)
 
         form = QFormLayout()
+        form.addRow("Include names:", self._include_globs)
         form.addRow("Exclude names:", self._globs)
         form.addRow("Min file size:", self._min_size)
         form.addRow("Max file size:", self._max_size)
@@ -78,8 +79,11 @@ class FiltersDialog(QDialog):
         form.addRow(before_row)
 
         hint = QLabel(
-            "Name patterns exclude files and folders (case-insensitive). "
-            "Size and date limits apply to files only."
+            "Include patterns limit which files are compared; leave empty to include "
+            "everything. Exclude patterns remove files and folders, and win over "
+            "include patterns. Matching is case-insensitive. "
+            "Include, size and date limits apply to files only, so folders are always "
+            "walked."
         )
         hint.setWordWrap(True)
 
@@ -98,6 +102,7 @@ class FiltersDialog(QDialog):
         layout.addWidget(buttons)
 
     def _clear(self) -> None:
+        self._include_globs.clear()
         self._globs.clear()
         self._min_size.clear()
         self._max_size.clear()
@@ -109,17 +114,17 @@ class FiltersDialog(QDialog):
             min_size = parse_size(self._min_size.text())
             max_size = parse_size(self._max_size.text())
         except ValueError as exc:
-            QMessageBox.warning(self, "Exclusion Filters", str(exc))
+            QMessageBox.warning(self, "Filters", str(exc))
             return
-        globs = tuple(p for p in re.split(r"[,;\s]+", self._globs.text()) if p)
         modified_after = None
         if self._after_check.isChecked():
             modified_after = self._after_edit.dateTime().toPython().astimezone()
         modified_before = None
         if self._before_check.isChecked():
             modified_before = self._before_edit.dateTime().toPython().astimezone()
-        self._result = ExcludeFilters(
-            name_globs=globs,
+        self._result = CompareFilters(
+            exclude_globs=parse_globs(self._globs.text()),
+            include_globs=parse_globs(self._include_globs.text()),
             min_size=min_size,
             max_size=max_size,
             modified_after=modified_after,
@@ -127,6 +132,6 @@ class FiltersDialog(QDialog):
         )
         self.accept()
 
-    def filters(self) -> ExcludeFilters:
+    def filters(self) -> CompareFilters:
         assert self._result is not None  # only valid after accept
         return self._result

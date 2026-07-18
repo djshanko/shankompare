@@ -1,5 +1,22 @@
 # shankompare — Release Notes
 
+## 0.3.4 — 2026-07-18
+
+**New features**
+
+- **Include filters.** The filters dialog now has an **Include names** field alongside the existing exclusions: when it is set, only files whose name matches one of the patterns are compared; leave it empty to include everything (the previous behaviour). Folders are never filtered out by include patterns, so subfolders are still walked and their matching files found. **Exclusions take priority** — a name matching both an include and an exclude pattern is excluded. Include patterns are saved with sessions.
+- **Patterns can contain spaces.** Wrap a pattern in double quotes when the name has whitespace in it — `*.log "My Documents" "weekly report*.xlsx"`. Both filter fields show an example of this, and quoted patterns survive being saved and reopened.
+- **Copy left/right path.** Right-click in the folder tab → **Copy left path** / **Copy right path** puts the selected entries' full paths on the clipboard, one per line. Local paths use the platform's native form; SFTP paths stay plain remote paths, ready to paste back into a path box.
+- **Open a file that exists on only one side.** Orphan files now open in a compare tab (double-click, Enter, or right-click → *Open as text* / *Open as hex*) instead of doing nothing. The missing side shows as an empty pane labelled *(missing)*, so the content is readable — and saving that pane in Edit mode creates the file on that side.
+- **Save session shows the sessions you already have.** **Session → Save current…** now lists the saved session names next to the name field. Click one to overwrite it — the button changes to **Overwrite** and asks for confirmation first — or type a new name to add one. Previously a name that happened to match an existing session replaced it silently.
+- **The Show filter takes several categories at once.** The single-choice dropdown in the folder tab became a checkable menu: tick any combination of **Unchanged**, **Modified**, **Left orphans** and **Right orphans** (for example modified files *and* left orphans, which the old list couldn't express). The button text summarizes the selection, and **All** / **Differences only** presets are at the bottom of the menu.
+
+**Changed**
+
+- **Files still being compared now stay visible under every Show filter.** Previously a filter such as *Differences only* hid not-yet-checked rows, so results appeared to flicker in and out while a large or remote scan streamed in. They now always show, in orange, until their status is known.
+
+**Note for existing sessions:** saved sessions load unchanged; they simply start with no include patterns.
+
 ## 0.3.3 — 2026-07-16
 
 **New features**

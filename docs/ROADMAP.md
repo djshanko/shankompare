@@ -64,6 +64,17 @@ Small enhancement on top of M4 (not a milestone):
 - **Keyboard shortcuts** across all views (folder, text, hex) plus global tab management, listed under Help → Keyboard Shortcuts and in the manual.
 - **Text-compare undo/redo** (buttons + Ctrl+Z / Ctrl+Y on the focused pane) and **unsaved-edit protection**: a `*` in the tab title while edits are pending, with a save/discard prompt when closing or refreshing the tab or quitting the app.
 
+## 0.3.4 — QoL patch ✅ (done 2026-07-18)
+
+Small enhancements on top of M4 (not a milestone):
+
+- **Include filters** alongside the existing exclusions (empty = include everything; exclusions take priority; folders always pass so subtrees are still walked). Saved with sessions.
+- Filter patterns may contain **whitespace** when double-quoted (`"My Documents"`); both filter fields show an example.
+- Folder tab right-click → **Copy left path / Copy right path** (multi-select, one path per line).
+- **Files present on only one side now open** in a text/hex tab, with the missing side shown as an empty `(missing)` pane.
+- **Save session lists the existing sessions** for overwrite (with a confirmation), instead of silently replacing a name collision.
+- **Show filter accepts multiple categories** (checkable menu over the four statuses, with All / Differences-only presets); not-yet-compared rows always stay visible.
+
 ## M5+ — Backlog (future)
 
 Ordered by expected value, not committed:

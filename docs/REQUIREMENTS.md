@@ -37,16 +37,21 @@ Tags:
 | Color highlighting: added (only on one side), modified, matching | [v1] |
 | Automatically compare subfolders and expand them in place | [v1] |
 | Display filters: show only differences / only added / only modified / all | [v1] |
+| Display filters combine freely (any subset of unchanged / modified / left / right orphans) | [v1.x] |
 | Comparison criteria: last modified time (with configurable tolerance, ≥2 s for FAT/SFTP granularity) | [v1] |
 | Correct a skewed SFTP server clock when comparing modified times (opt-in, measured per connection) | [v1.x] |
 | Comparison criteria: size | [v1] |
 | Comparison criteria: file content (CRC32 or byte-by-byte) | [v1] |
 | Comparison criteria: filename case sensitivity toggle | [v1] |
 | Open a selected file pair in the text compare view | [v1] |
+| Open a file present on only one side (missing side shown as an empty pane) | [v1.x] |
+| Copy the left/right full path of selected entries to the clipboard | [v1.x] |
 | File operations: copy, delete between sides, with background progress | [v1.x] |
 | File operations: move, rename, set last modified time | [v1.x] |
-| Dedicated synchronization commands (mirror, update) | [future] |
-| Exclusion filters (name patterns, size, mtime) | [future] |
+| Dedicated synchronization commands (mirror, update) | [v1.x] |
+| Exclusion filters (name patterns, size, mtime) | [v1.x] |
+| Inclusion filters (name patterns; empty = all, exclusions take priority) | [v1.x] |
+| Filter patterns containing whitespace (double-quoted) | [v1.x] |
 | Comparison criteria: DOS attributes, exe/dll versions, format-specific content | [out of scope] |
 | Pause running operations | [future] |
 

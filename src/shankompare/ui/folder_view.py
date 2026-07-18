@@ -1,14 +1,13 @@
 """Folder comparison result view: filter toolbar + streaming tree + file ops."""
 
 from PySide6.QtCore import QModelIndex, QPoint, Qt, Signal
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QComboBox,
     QHBoxLayout,
     QInputDialog,
-    QLabel,
     QMenu,
     QPushButton,
+    QToolButton,
     QTreeView,
     QVBoxLayout,
     QWidget,
@@ -17,12 +16,36 @@ from PySide6.QtWidgets import (
 from shankompare.compare import NodeResult, Status
 from shankompare.vfs.ops import FileOp, OpKind
 
-from .folder_model import _ROOT_INDEX, FilterMode, FolderCompareModel, StatusFilterProxy
+from .folder_model import (
+    _ROOT_INDEX,
+    FILTERABLE_STATUSES,
+    FolderCompareModel,
+    StatusFilterProxy,
+)
+
+_FILTER_CHOICES: list[tuple[str, Status]] = [
+    ("Unchanged", Status.SAME),
+    ("Modified", Status.DIFFERENT),
+    ("Left orphans", Status.LEFT_ONLY),
+    ("Right orphans", Status.RIGHT_ONLY),
+]
+
+
+def _filter_summary(statuses: frozenset[Status]) -> str:
+    if statuses >= FILTERABLE_STATUSES:
+        return "Show: All"
+    if not statuses:
+        return "Show: None"
+    if statuses == FILTERABLE_STATUSES - {Status.SAME}:
+        return "Show: Differences"
+    labels = [label for label, status in _FILTER_CHOICES if status in statuses]
+    return "Show: " + " + ".join(labels)
 
 
 class FolderCompareView(QWidget):
     open_diff_requested = Signal(object, str, str)  # (NodeResult, rel_path, mode)
     ops_requested = Signal(list)  # list[FileOp]
+    copy_paths_requested = Signal(list, str)  # (rel_paths, "left" | "right")
     refresh_requested = Signal()  # re-scan, re-checking content only for modified files
 
     def __init__(self, parent: QWidget | None = None):
@@ -31,10 +54,23 @@ class FolderCompareView(QWidget):
         self._proxy = StatusFilterProxy(self)
         self._proxy.setSourceModel(self._model)
 
-        self._filter_combo = QComboBox()
-        for mode in FilterMode:
-            self._filter_combo.addItem(mode.value, mode)
-        self._filter_combo.currentIndexChanged.connect(self._on_filter_changed)
+        self._filter_btn = QToolButton()
+        self._filter_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._filter_btn.setToolTip("Choose which comparison results the tree shows")
+        filter_menu = QMenu(self._filter_btn)
+        self._filter_actions: dict[Status, QAction] = {}
+        for label, status in _FILTER_CHOICES:
+            action = filter_menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(True)
+            action.toggled.connect(self._on_filter_changed)
+            self._filter_actions[status] = action
+        filter_menu.addSeparator()
+        filter_menu.addAction("All", self._filter_select_all)
+        filter_menu.addAction("Differences only", self._filter_select_differences)
+        self._filter_btn.setMenu(filter_menu)
+        # not _on_filter_changed(): the tree it re-expands does not exist yet
+        self._filter_btn.setText(_filter_summary(FILTERABLE_STATUSES))
 
         self._refresh_btn = QPushButton("Refresh")
         self._refresh_btn.setShortcut("F5")
@@ -89,8 +125,7 @@ class FolderCompareView(QWidget):
             shortcut.activated.connect(slot)
 
         toolbar = QHBoxLayout()
-        toolbar.addWidget(QLabel("Show:"))
-        toolbar.addWidget(self._filter_combo)
+        toolbar.addWidget(self._filter_btn)
         toolbar.addWidget(self._refresh_btn)
         toolbar.addWidget(expand_btn)
         toolbar.addWidget(collapse_btn)
@@ -127,9 +162,27 @@ class FolderCompareView(QWidget):
     def _tree_collapse_all(self) -> None:
         self._tree.collapseAll()
 
-    def _on_filter_changed(self, _index: int) -> None:
-        self._proxy.set_mode(self._filter_combo.currentData())
+    def _on_filter_changed(self, _checked: bool = False) -> None:
+        selected = frozenset(
+            status for status, action in self._filter_actions.items() if action.isChecked()
+        )
+        self._proxy.set_statuses(selected)
+        self._filter_btn.setText(_filter_summary(selected))
         self.expand_differences()
+
+    def _set_filter_statuses(self, statuses: frozenset[Status]) -> None:
+        """Applies a preset in one pass, so the proxy re-filters once, not four times."""
+        for status, action in self._filter_actions.items():
+            action.blockSignals(True)
+            action.setChecked(status in statuses)
+            action.blockSignals(False)
+        self._on_filter_changed()
+
+    def _filter_select_all(self) -> None:
+        self._set_filter_statuses(FILTERABLE_STATUSES)
+
+    def _filter_select_differences(self) -> None:
+        self._set_filter_statuses(FILTERABLE_STATUSES - {Status.SAME})
 
     def expand_differences(self, parent: QModelIndex = _ROOT_INDEX) -> None:
         for row in range(self._proxy.rowCount(parent)):
@@ -144,7 +197,9 @@ class FolderCompareView(QWidget):
         if item is None:
             return
         node = item.node
-        if not node.is_dir and node.left is not None and node.right is not None:
+        # A file present on only one side opens too: the missing side shows as
+        # an empty pane, so the content is still viewable (and saveable).
+        if not node.is_dir:
             self.open_diff_requested.emit(node, str(item.rel_path), "auto")
 
     # --- file operations context menu ---------------------------------------------
@@ -171,12 +226,14 @@ class FolderCompareView(QWidget):
 
         menu = QMenu(self)
 
-        if len(items) == 1 and file_pairs:
-            pair = file_pairs[0]
-            for label, mode in (("Compare as text", "text"), ("Compare as hex", "hex")):
-                action = menu.addAction(label)
+        if len(items) == 1 and not items[0].node.is_dir:
+            target = items[0]
+            one_sided = target.node.left is None or target.node.right is None
+            verb = "Open" if one_sided else "Compare"
+            for kind, mode in (("text", "text"), ("hex", "hex")):
+                action = menu.addAction(f"{verb} as {kind}")
                 action.triggered.connect(
-                    lambda _=False, i=pair, m=mode: self.open_diff_requested.emit(
+                    lambda _=False, i=target, m=mode: self.open_diff_requested.emit(
                         i.node, str(i.rel_path), m
                     )
                 )
@@ -211,6 +268,20 @@ class FolderCompareView(QWidget):
         rename_action.setEnabled(len(items) == 1)
         if len(items) == 1:
             rename_action.triggered.connect(lambda _=False, i=items[0]: self._rename(i))
+        menu.addSeparator()
+
+        for label, eligible, side in (
+            ("Copy left path", with_left, "left"),
+            ("Copy right path", with_right, "right"),
+        ):
+            action = menu.addAction(label)
+            if eligible:
+                rel_paths = [str(i.rel_path) for i in eligible]
+                action.triggered.connect(
+                    lambda _=False, p=rel_paths, s=side: self.copy_paths_requested.emit(p, s)
+                )
+            else:
+                action.setEnabled(False)
 
         menu.exec(self._tree.viewport().mapToGlobal(pos))
 

@@ -1,12 +1,14 @@
 """Main window: side pickers, compare options, folder tab + text compare tabs."""
 
 from dataclasses import replace
+from pathlib import Path, PurePosixPath
 
 from PySide6.QtCore import Qt, QThread, QUrl
 from PySide6.QtGui import (
     QActionGroup,
     QCloseEvent,
     QDesktopServices,
+    QGuiApplication,
     QKeySequence,
     QShortcut,
 )
@@ -33,9 +35,9 @@ from PySide6.QtWidgets import (
 
 from shankompare import __version__
 from shankompare.compare import (
+    CompareFilters,
     CompareOptions,
     ContentMode,
-    ExcludeFilters,
     NodeResult,
     SyncPlan,
     plan_mirror,
@@ -62,6 +64,7 @@ from .hex_compare import HexCompareView
 from .profile_dialog import ProfileDialog
 from .remote_browse import RemoteBrowseDialog
 from .resources import doc_path, log_dir
+from .session_dialog import SaveSessionDialog
 from .text_compare import TextCompareView
 from .theme import THEMES, apply_theme
 from .worker import (
@@ -95,7 +98,7 @@ SHORTCUTS_MARKDOWN = """\
 | Previous / Next difference | F7 / F8 |
 | Copy selection to left / right | Alt+← / Alt+→ |
 | Delete selection on left / right | Ctrl+Del / Ctrl+Shift+Del |
-| Open selected pair | Enter |
+| Open selected file | Enter |
 | Rename selected | F2 |
 | Expand all / Collapse all | Ctrl+E / Ctrl+Shift+E |
 | Edit filters | Ctrl+L |
@@ -119,6 +122,23 @@ SHORTCUTS_MARKDOWN = """\
 | Toggle Only differences | Ctrl+D |
 | Reload both files | F5 |
 """
+
+
+def full_path(spec: SideSpec, rel_path: str) -> str:
+    """Absolute path of ``rel_path`` on ``spec``'s side, for display/clipboard.
+
+    Local sides render in the platform's native form; SFTP sides stay posix and
+    carry no ``user@host:`` prefix, so the result can be pasted straight back
+    into the app's path box.
+    """
+    if isinstance(spec, LocalSide):
+        return str(Path(spec.path) / rel_path)
+    return str(PurePosixPath(spec.profile.initial_path) / rel_path)
+
+
+def _pane_title(side: str, rel_path: str, missing: bool) -> str:
+    """Header for one diff pane; flags a side the file is absent from."""
+    return f"{side}: {rel_path} (missing)" if missing else f"{side}: {rel_path}"
 
 
 class _LoadingTab(QWidget):
@@ -275,9 +295,9 @@ class MainWindow(QMainWindow):
         self._ops_worker: FileOpsWorker | None = None
         self._ops_pending: list[FileOp] = []
         self._pending_relaunch: tuple[SideSpec, SideSpec] | None = None
-        self._exclude = ExcludeFilters()
+        self._filters = CompareFilters()
         self._last_root: NodeResult | None = None
-        self._pending_diffs: dict[object, tuple[QWidget, str]] = {}
+        self._pending_diffs: dict[object, tuple[QWidget, str, bool]] = {}
 
         self._left_picker = SidePicker("Left side")
         self._right_picker = SidePicker("Right side")
@@ -315,7 +335,7 @@ class MainWindow(QMainWindow):
 
         self._filters_btn = QPushButton("Filters…")
         self._filters_btn.setShortcut("Ctrl+L")
-        self._filters_btn.setToolTip("Edit exclusion filters (Ctrl+L)")
+        self._filters_btn.setToolTip("Edit include/exclude filters (Ctrl+L)")
         self._filters_btn.clicked.connect(self._edit_filters)
         self._sync_btn = QToolButton()
         self._sync_btn.setText("Sync")
@@ -349,6 +369,7 @@ class MainWindow(QMainWindow):
         self._folder_view = FolderCompareView()
         self._folder_view.open_diff_requested.connect(self._open_diff)
         self._folder_view.ops_requested.connect(self._enqueue_ops)
+        self._folder_view.copy_paths_requested.connect(self._copy_paths)
         self._folder_view.refresh_requested.connect(self._refresh)
 
         sides_row = QHBoxLayout()
@@ -496,9 +517,11 @@ class MainWindow(QMainWindow):
     # --- sessions ---------------------------------------------------------------
 
     def _save_session(self) -> None:
-        name, ok = QInputDialog.getText(self, "Save session", "Session name:")
-        name = name.strip()
-        if not ok or not name:
+        dialog = SaveSessionDialog([s.name for s in self._sessions], parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        name = dialog.session_name()
+        if not name:
             return
         options = self._options()
         session = Session(
@@ -513,7 +536,7 @@ class MainWindow(QMainWindow):
             case_sensitive=options.case_sensitive,
             correct_clock_offset=self._clock_check.isChecked(),
         )
-        session.set_exclude_filters(self._exclude)
+        session.set_compare_filters(self._filters)
         self._sessions = [s for s in self._sessions if s.name != name] + [session]
         self._session_store.save(self._sessions)
         self._build_menus()
@@ -530,7 +553,7 @@ class MainWindow(QMainWindow):
         self._skip_equal_check.setChecked(session.skip_content_if_metadata_matches)
         self._case_check.setChecked(session.case_sensitive)
         self._clock_check.setChecked(session.correct_clock_offset)
-        self._exclude = session.exclude_filters()
+        self._filters = session.compare_filters()
         self._update_filters_button()
         if not (ok_left and ok_right):
             QMessageBox.warning(
@@ -558,20 +581,18 @@ class MainWindow(QMainWindow):
             self._left_picker.set_profiles(self._profiles)
             self._right_picker.set_profiles(self._profiles)
 
-    # --- exclusion filters ---------------------------------------------------------
+    # --- comparison filters ---------------------------------------------------------
 
     def _edit_filters(self) -> None:
-        dialog = FiltersDialog(self._exclude, self)
+        dialog = FiltersDialog(self._filters, self)
         if dialog.exec():
-            self._exclude = dialog.filters()
+            self._filters = dialog.filters()
             self._update_filters_button()
 
     def _update_filters_button(self) -> None:
-        active = self._exclude != ExcludeFilters()
+        active = self._filters != CompareFilters()
         self._filters_btn.setText("Filters ● …" if active else "Filters…")
-        self._filters_btn.setToolTip(
-            "Exclusion filters are active" if active else "No exclusion filters"
-        )
+        self._filters_btn.setToolTip("Filters are active" if active else "No filters")
 
     # --- folder comparison ------------------------------------------------------
 
@@ -583,7 +604,7 @@ class MainWindow(QMainWindow):
             content=self._content_combo.currentData(),
             skip_content_if_metadata_matches=self._skip_equal_check.isChecked(),
             case_sensitive=self._case_check.isChecked(),
-            exclude=self._exclude,
+            filters=self._filters,
         )
 
     def _side_spec(self, picker: SidePicker) -> SideSpec | None:
@@ -809,6 +830,17 @@ class MainWindow(QMainWindow):
             # only for the files the operations touched (baseline reuse)
             self._launch(*self._sides, baseline=self._last_root)
 
+    # --- clipboard ----------------------------------------------------------------
+
+    def _copy_paths(self, rel_paths: list[str], side: str) -> None:
+        """Put the selected entries' full paths on that side onto the clipboard."""
+        if self._sides is None or not rel_paths:
+            return
+        spec = self._sides[0] if side == "left" else self._sides[1]
+        paths = [full_path(spec, rel) for rel in rel_paths]
+        QGuiApplication.clipboard().setText("\n".join(paths))
+        self.statusBar().showMessage(f"Copied {len(paths)} {side} path(s) to the clipboard.")
+
     # --- diff tabs (text and hex) ------------------------------------------------
 
     # NOTE: signals emitted from worker threads must connect to bound methods
@@ -822,16 +854,19 @@ class MainWindow(QMainWindow):
         placeholder = _LoadingTab(rel_path)
         index = self._tabs.addTab(placeholder, node.name)
         self._tabs.setCurrentIndex(index)
-        self._start_diff_load(placeholder, rel_path, mode)
+        missing = node.left is None or node.right is None
+        self._start_diff_load(placeholder, rel_path, mode, missing_ok=missing)
 
-    def _start_diff_load(self, target: QWidget, rel_path: str, mode: str) -> None:
+    def _start_diff_load(
+        self, target: QWidget, rel_path: str, mode: str, missing_ok: bool = False
+    ) -> None:
         """``target`` is either a _LoadingTab (first load) or an existing
         text/hex view being refreshed."""
         if self._sides is None:
             return
         left, right = self._sides
-        worker = DiffLoadWorker(left, right, rel_path, mode)
-        self._pending_diffs[worker] = (target, rel_path)
+        worker = DiffLoadWorker(left, right, rel_path, mode, missing_ok=missing_ok)
+        self._pending_diffs[worker] = (target, rel_path, missing_ok)
         worker.text_ready.connect(self._on_diff_text_ready)
         worker.hex_ready.connect(self._on_diff_hex_ready)
         worker.failed.connect(self._on_diff_failed)
@@ -839,22 +874,27 @@ class MainWindow(QMainWindow):
             start_worker(worker, self, [worker.text_ready, worker.hex_ready, worker.failed])
         )
 
-    def _pop_pending(self) -> tuple[QWidget | None, str]:
-        return self._pending_diffs.pop(self.sender(), (None, ""))
+    def _pop_pending(self) -> tuple[QWidget | None, str, bool]:
+        return self._pending_diffs.pop(self.sender(), (None, "", False))
 
     def _on_diff_text_ready(self, data) -> None:
-        target, rel_path = self._pop_pending()
+        target, rel_path, missing_ok = self._pop_pending()
         if target is None:
             return
         if isinstance(target, TextCompareView):  # refresh of an existing tab
             target.on_diff_loaded(data)
             return
-        view = TextCompareView(f"Left: {rel_path}", f"Right: {rel_path}")
+        view = TextCompareView(
+            _pane_title("Left", rel_path, missing_ok and not data.left.text),
+            _pane_title("Right", rel_path, missing_ok and not data.right.text),
+        )
         view.save_requested.connect(  # emitted on the UI thread (button click)
             lambda side, blob, v=view, rel=rel_path: self._save_text(v, side, rel, blob)
         )
         view.refresh_requested.connect(  # emitted on the UI thread
-            lambda v=view, rel=rel_path: self._start_diff_load(v, rel, "text")
+            lambda v=view, rel=rel_path, m=missing_ok: self._start_diff_load(
+                v, rel, "text", missing_ok=m
+            )
         )
         view.dirty_changed.connect(  # emitted on the UI thread (edits / saves)
             lambda dirty, v=view: self._set_tab_dirty(v, dirty)
@@ -863,21 +903,26 @@ class MainWindow(QMainWindow):
         self._swap_tab(target, view)
 
     def _on_diff_hex_ready(self, data) -> None:
-        target, rel_path = self._pop_pending()
+        target, rel_path, missing_ok = self._pop_pending()
         if target is None:
             return
         if isinstance(target, HexCompareView):  # refresh of an existing tab
             target.on_hex_loaded(data)
             return
-        view = HexCompareView(f"Left: {rel_path}", f"Right: {rel_path}")
+        view = HexCompareView(
+            _pane_title("Left", rel_path, missing_ok and not data.left),
+            _pane_title("Right", rel_path, missing_ok and not data.right),
+        )
         view.refresh_requested.connect(  # emitted on the UI thread
-            lambda v=view, rel=rel_path: self._start_diff_load(v, rel, "hex")
+            lambda v=view, rel=rel_path, m=missing_ok: self._start_diff_load(
+                v, rel, "hex", missing_ok=m
+            )
         )
         view.on_hex_loaded(data)
         self._swap_tab(target, view)
 
     def _on_diff_failed(self, message: str) -> None:
-        target, _ = self._pop_pending()
+        target, _, _ = self._pop_pending()
         if target is not None:
             target.show_error(message)
 

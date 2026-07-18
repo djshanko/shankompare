@@ -67,13 +67,14 @@ def test_session_unknown_keys_ignored(tmp_path):
     ]
 
 
-def test_exclude_filters_roundtrip(tmp_path):
+def test_compare_filters_roundtrip(tmp_path):
     from datetime import UTC, datetime
 
-    from shankompare.compare import ExcludeFilters
+    from shankompare.compare import CompareFilters
 
-    filters = ExcludeFilters(
-        name_globs=("*.log", "__pycache__"),
+    filters = CompareFilters(
+        exclude_globs=("*.log", "__pycache__"),
+        include_globs=("*.py", "weekly report*.xlsx"),
         min_size=10,
         max_size=1024**2,
         modified_after=datetime(2026, 1, 1, tzinfo=UTC),
@@ -83,11 +84,11 @@ def test_exclude_filters_roundtrip(tmp_path):
         left=SessionSide(SIDE_LOCAL, "C:/a"),
         right=SessionSide(SIDE_LOCAL, "D:/b"),
     )
-    session.set_exclude_filters(filters)
+    session.set_compare_filters(filters)
     store = SessionStore(tmp_path)
     store.save([session])
     loaded = store.load()[0]
-    assert loaded.exclude_filters() == filters
+    assert loaded.compare_filters() == filters
 
 
 def test_session_without_filter_fields_defaults_to_no_filters(tmp_path):
@@ -97,9 +98,25 @@ def test_session_without_filter_fields_defaults_to_no_filters(tmp_path):
         ' "right": {"kind": "local", "path": "y"}}]',
         encoding="utf-8",
     )
-    from shankompare.compare import ExcludeFilters
+    from shankompare.compare import CompareFilters
 
-    assert store.load()[0].exclude_filters() == ExcludeFilters()
+    assert store.load()[0].compare_filters() == CompareFilters()
+
+
+def test_session_predating_include_filters_still_loads(tmp_path):
+    """Sessions written before include filters existed keep their exclusions."""
+    store = SessionStore(tmp_path)
+    (tmp_path / "sessions.json").write_text(
+        '[{"name": "old", "left": {"kind": "local", "path": "x"},'
+        ' "right": {"kind": "local", "path": "y"},'
+        ' "exclude_globs": ["*.log"], "exclude_min_size": 10}]',
+        encoding="utf-8",
+    )
+    from shankompare.compare import CompareFilters
+
+    assert store.load()[0].compare_filters() == CompareFilters(
+        exclude_globs=("*.log",), min_size=10
+    )
 
 
 def test_settings_roundtrip(tmp_path):

@@ -7,9 +7,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import QModelIndex
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QDialog
 
 from shankompare.compare import CompareOptions, Status, decode_bytes
+from shankompare.ui.folder_model import FILTERABLE_STATUSES
 from shankompare.ui.folder_view import FolderCompareView
 from shankompare.ui.main_window import MainWindow
 from shankompare.ui.text_compare import TextCompareView
@@ -69,9 +70,14 @@ def test_worker_streams_into_folder_view(app, folder_pair):
     assert proxy.rowCount(QModelIndex()) == 3
 
 
-def test_folder_view_filter_hides_same(app, folder_pair):
-    from shankompare.ui.folder_model import FilterMode
+def _top_level_names(view):
+    return {
+        view._proxy.index(row, 0, QModelIndex()).data()
+        for row in range(view._proxy.rowCount(QModelIndex()))
+    }
 
+
+def _compared_view(folder_pair):
     left, right = folder_pair
     view = FolderCompareView()
     worker = CompareWorker(LocalSide(str(left)), LocalSide(str(right)), CompareOptions())
@@ -79,13 +85,139 @@ def test_folder_view_filter_hides_same(app, folder_pair):
     worker.finished.connect(results.append)
     worker.run()
     view.set_result(results[0])
+    return view
 
-    view._proxy.set_mode(FilterMode.DIFFERENCES)
-    names = {
-        view._proxy.index(row, 0, QModelIndex()).data()
-        for row in range(view._proxy.rowCount(QModelIndex()))
-    }
-    assert names == {"only-left.txt", "sub"}
+
+def test_folder_view_filter_hides_same(app, folder_pair):
+    view = _compared_view(folder_pair)
+    view._proxy.set_statuses(frozenset({Status.DIFFERENT, Status.LEFT_ONLY, Status.RIGHT_ONLY}))
+    assert _top_level_names(view) == {"only-left.txt", "sub"}
+
+
+def test_folder_view_filter_selects_multiple_statuses(app, folder_pair):
+    view = _compared_view(folder_pair)
+
+    # a single category: "sub" survives only because its child is DIFFERENT
+    view._proxy.set_statuses(frozenset({Status.LEFT_ONLY}))
+    assert _top_level_names(view) == {"only-left.txt"}
+
+    view._proxy.set_statuses(frozenset({Status.SAME, Status.LEFT_ONLY}))
+    assert _top_level_names(view) == {"same.txt", "only-left.txt"}
+
+    view._proxy.set_statuses(FILTERABLE_STATUSES)
+    assert _top_level_names(view) == {"same.txt", "only-left.txt", "sub"}
+
+    view._proxy.set_statuses(frozenset())
+    assert _top_level_names(view) == set()
+
+
+def test_folder_view_filter_menu_drives_proxy(app, folder_pair):
+    view = _compared_view(folder_pair)
+    assert view._filter_btn.text() == "Show: All"
+
+    view._filter_actions[Status.SAME].setChecked(False)  # fires toggled
+    assert _top_level_names(view) == {"only-left.txt", "sub"}
+    assert view._filter_btn.text() == "Show: Differences"
+
+    view._filter_select_all()
+    assert all(action.isChecked() for action in view._filter_actions.values())
+    assert view._filter_btn.text() == "Show: All"
+
+    view._filter_select_differences()
+    assert not view._filter_actions[Status.SAME].isChecked()
+    assert all(
+        view._filter_actions[status].isChecked()
+        for status in (Status.DIFFERENT, Status.LEFT_ONLY, Status.RIGHT_ONLY)
+    )
+
+    view._filter_select_all()
+    view._filter_actions[Status.DIFFERENT].setChecked(False)
+    assert view._filter_btn.text() == "Show: Unchanged + Left orphans + Right orphans"
+
+
+def test_folder_view_filter_keeps_unscanned_rows_visible(app, folder_pair):
+    """Rows still being compared show under every filter, so streaming results
+    never blink out of the tree mid-scan."""
+    from shankompare.compare import NodeResult
+    from shankompare.ui.folder_model import FolderCompareModel
+
+    view = FolderCompareView()
+    root = NodeResult(name="", status=Status.UNKNOWN)
+    root.children.append(NodeResult(name="pending.txt", status=Status.UNKNOWN))
+    view.set_result(root)
+
+    view._proxy.set_statuses(frozenset({Status.LEFT_ONLY}))
+    assert _top_level_names(view) == {"pending.txt"}
+    assert isinstance(view._model, FolderCompareModel)
+
+
+def test_save_session_dialog_lists_and_labels(app):
+    from shankompare.ui.session_dialog import SaveSessionDialog
+
+    dialog = SaveSessionDialog(["nightly", "release"])
+    ok = dialog._ok_button()
+    assert not ok.isEnabled()  # nothing typed yet
+    assert [dialog._list.item(row).text() for row in range(dialog._list.count())] == [
+        "nightly",
+        "release",
+    ]
+
+    dialog._name_edit.setText("nightly")
+    assert ok.isEnabled() and ok.text() == "Overwrite"
+
+    dialog._name_edit.setText("fresh")
+    assert ok.isEnabled() and ok.text() == "Save"
+
+    dialog._name_edit.setText("   ")
+    assert not ok.isEnabled()
+
+    dialog._list.setCurrentRow(1)  # picking from the list fills the name
+    assert dialog.session_name() == "release"
+    assert ok.text() == "Overwrite"
+
+
+def test_save_session_dialog_confirms_overwrite(app, monkeypatch):
+    from shankompare.ui import session_dialog as module
+    from shankompare.ui.session_dialog import SaveSessionDialog
+
+    asked: list[str] = []
+
+    def answer(button):
+        def question(_parent, _title, text):
+            asked.append(text)
+            return button
+
+        return question
+
+    dialog = SaveSessionDialog(["nightly"])
+    dialog._name_edit.setText("nightly")
+
+    monkeypatch.setattr(
+        module.QMessageBox, "question", answer(module.QMessageBox.StandardButton.No)
+    )
+    dialog._on_accept()
+    assert dialog.result() != QDialog.DialogCode.Accepted  # stays open for another name
+    assert asked == ["Overwrite session 'nightly'?"]
+
+    monkeypatch.setattr(
+        module.QMessageBox, "question", answer(module.QMessageBox.StandardButton.Yes)
+    )
+    dialog._on_accept()
+    assert dialog.result() == QDialog.DialogCode.Accepted
+
+
+def test_save_session_dialog_skips_confirm_for_new_name(app, monkeypatch):
+    from shankompare.ui import session_dialog as module
+    from shankompare.ui.session_dialog import SaveSessionDialog
+
+    def refuse(*args, **kwargs):
+        pytest.fail("a new session name must not prompt for overwrite")
+
+    monkeypatch.setattr(module.QMessageBox, "question", refuse)
+    dialog = SaveSessionDialog(["nightly"])
+    dialog._name_edit.setText("fresh")
+    dialog._on_accept()
+    assert dialog.result() == QDialog.DialogCode.Accepted
 
 
 def _start_text_worker_without_local_ref(parent, left, right, results, errors):

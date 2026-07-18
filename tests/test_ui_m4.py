@@ -113,11 +113,12 @@ def test_compare_zip_archive_against_folder(app, tmp_path):
 def test_filters_dialog_roundtrip(app):
     from datetime import UTC, datetime
 
-    from shankompare.compare import ExcludeFilters
+    from shankompare.compare import CompareFilters
     from shankompare.ui.filters_dialog import FiltersDialog
 
-    initial = ExcludeFilters(
-        name_globs=("*.log", "node_modules"),
+    initial = CompareFilters(
+        exclude_globs=("*.log", "node_modules", "My Documents"),
+        include_globs=("*.py", "weekly report*.xlsx"),
         min_size=1024,
         max_size=10 * 1024**2,
         modified_after=datetime(2026, 1, 15, 8, 30, tzinfo=UTC),
@@ -125,7 +126,9 @@ def test_filters_dialog_roundtrip(app):
     dialog = FiltersDialog(initial)
     dialog._on_accept()
     result = dialog.filters()
-    assert result.name_globs == initial.name_globs
+    # patterns containing spaces survive the display → parse round trip
+    assert result.exclude_globs == initial.exclude_globs
+    assert result.include_globs == initial.include_globs
     assert result.min_size == initial.min_size
     assert result.max_size == initial.max_size
     # QDateTimeEdit has minute granularity; compare at that precision in UTC
@@ -137,10 +140,12 @@ def test_filters_dialog_roundtrip(app):
 
 
 def test_filters_dialog_clear(app):
-    from shankompare.compare import ExcludeFilters
+    from shankompare.compare import CompareFilters
     from shankompare.ui.filters_dialog import FiltersDialog
 
-    dialog = FiltersDialog(ExcludeFilters(name_globs=("*.tmp",), min_size=5))
+    dialog = FiltersDialog(
+        CompareFilters(exclude_globs=("*.tmp",), include_globs=("*.py",), min_size=5)
+    )
     dialog._clear()
     dialog._on_accept()
-    assert dialog.filters() == ExcludeFilters()
+    assert dialog.filters() == CompareFilters()

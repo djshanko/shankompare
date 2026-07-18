@@ -27,6 +27,7 @@ from shankompare.vfs import (
     VfsAuthError,
     VfsConnectionError,
     VfsError,
+    VfsNotFound,
     is_archive_name,
 )
 from shankompare.vfs.archive import MAX_ARCHIVE_BYTES
@@ -239,18 +240,31 @@ class DiffLoadWorker(QObject):
 
     ``mode``: "text" or "hex" force the view; "auto" picks hex when either
     file contains NUL bytes near the start.
+
+    With ``missing_ok`` a side where the file does not exist loads as empty
+    instead of failing — that is how a file present on only one side opens.
+    It is tested per read rather than passed as a fixed side, so a later
+    refresh picks the file up once it appears on the other side too.
     """
 
     text_ready = Signal(object)  # TextDiffData
     hex_ready = Signal(object)  # HexDiffData
     failed = Signal(str)
 
-    def __init__(self, left: SideSpec, right: SideSpec, rel_path: str, mode: str = "auto"):
+    def __init__(
+        self,
+        left: SideSpec,
+        right: SideSpec,
+        rel_path: str,
+        mode: str = "auto",
+        missing_ok: bool = False,
+    ):
         super().__init__()
         self._left = left
         self._right = right
         self._rel_path = rel_path
         self._mode = mode
+        self._missing_ok = missing_ok
 
     def run(self) -> None:
         try:
@@ -277,7 +291,12 @@ class DiffLoadWorker(QObject):
             self.failed.emit("Unexpected error; see the log output for details.")
 
     def _read(self, fs: FileSystem) -> bytes:
-        info = fs.stat(self._rel_path)
+        try:
+            info = fs.stat(self._rel_path)
+        except VfsNotFound:
+            if self._missing_ok:
+                return b""
+            raise
         if info.size > MAX_TEXT_COMPARE_BYTES:
             raise VfsError(
                 f"{self._rel_path} is {info.size:,} bytes; "

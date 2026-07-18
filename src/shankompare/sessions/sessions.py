@@ -8,7 +8,7 @@ from pathlib import Path
 
 from platformdirs import user_config_dir
 
-from shankompare.compare import ExcludeFilters
+from shankompare.compare import CompareFilters
 
 SIDE_LOCAL = "local"
 SIDE_SFTP = "sftp"
@@ -33,23 +33,27 @@ class Session:
     skip_content_if_metadata_matches: bool = True
     case_sensitive: bool = True
     correct_clock_offset: bool = False  # adjust SFTP mtimes for server clock skew
+    # field names kept as-is so sessions.json written by older versions loads
     exclude_globs: list[str] = field(default_factory=list)
+    include_globs: list[str] = field(default_factory=list)
     exclude_min_size: int | None = None
     exclude_max_size: int | None = None
     exclude_modified_after: str | None = None  # ISO 8601
     exclude_modified_before: str | None = None
 
-    def exclude_filters(self) -> ExcludeFilters:
-        return ExcludeFilters(
-            name_globs=tuple(self.exclude_globs),
+    def compare_filters(self) -> CompareFilters:
+        return CompareFilters(
+            exclude_globs=tuple(self.exclude_globs),
+            include_globs=tuple(self.include_globs),
             min_size=self.exclude_min_size,
             max_size=self.exclude_max_size,
             modified_after=_parse_iso(self.exclude_modified_after),
             modified_before=_parse_iso(self.exclude_modified_before),
         )
 
-    def set_exclude_filters(self, filters: ExcludeFilters) -> None:
-        self.exclude_globs = list(filters.name_globs)
+    def set_compare_filters(self, filters: CompareFilters) -> None:
+        self.exclude_globs = list(filters.exclude_globs)
+        self.include_globs = list(filters.include_globs)
         self.exclude_min_size = filters.min_size
         self.exclude_max_size = filters.max_size
         self.exclude_modified_after = _format_iso(filters.modified_after)

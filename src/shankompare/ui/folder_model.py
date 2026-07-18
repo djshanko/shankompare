@@ -7,7 +7,6 @@ the queued signal arrives; the mirror is only extended inside
 begin/endInsertRows).
 """
 
-from enum import Enum
 from pathlib import PurePosixPath
 
 from PySide6.QtCore import QAbstractItemModel, QModelIndex, QSortFilterProxyModel, Qt
@@ -204,28 +203,27 @@ class FolderCompareModel(QAbstractItemModel):
         return None
 
 
-class FilterMode(Enum):
-    ALL = "All items"
-    DIFFERENCES = "Differences only"
-    MODIFIED = "Modified only"
-    LEFT_ONLY = "Left orphans"
-    RIGHT_ONLY = "Right orphans"
+# The statuses a user can filter on. UNKNOWN is deliberately absent: rows still
+# being scanned always show, so streaming results never blink out of the tree.
+FILTERABLE_STATUSES = frozenset(
+    {Status.SAME, Status.DIFFERENT, Status.LEFT_ONLY, Status.RIGHT_ONLY}
+)
 
 
 class StatusFilterProxy(QSortFilterProxyModel):
-    """Shows a row if its status matches the mode, or any descendant's does."""
+    """Shows a row if its status is selected, or any descendant's is."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._mode = FilterMode.ALL
+        self._statuses = FILTERABLE_STATUSES
 
-    def set_mode(self, mode: FilterMode) -> None:
+    def set_statuses(self, statuses: frozenset[Status]) -> None:
         self.beginFilterChange()
-        self._mode = mode
+        self._statuses = statuses
         self.endFilterChange()
 
     def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
-        if self._mode is FilterMode.ALL:
+        if self._statuses >= FILTERABLE_STATUSES:
             return True
         model = self.sourceModel()
         index = model.index(source_row, 0, source_parent)
@@ -238,12 +236,4 @@ class StatusFilterProxy(QSortFilterProxyModel):
         return any(self._accepts(child) for child in node.children)
 
     def _matches(self, status: Status) -> bool:
-        if self._mode is FilterMode.DIFFERENCES:
-            return status is not Status.SAME
-        if self._mode is FilterMode.MODIFIED:
-            return status is Status.DIFFERENT
-        if self._mode is FilterMode.LEFT_ONLY:
-            return status is Status.LEFT_ONLY
-        if self._mode is FilterMode.RIGHT_ONLY:
-            return status is Status.RIGHT_ONLY
-        return True
+        return status is Status.UNKNOWN or status in self._statuses
