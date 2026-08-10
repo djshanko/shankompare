@@ -220,13 +220,19 @@ def _rewrite(fs: InMemoryFileSystem, path: str, content: bytes, mtime=STAMP) -> 
     fs.set_mtime(path, mtime)
 
 
+LATER = datetime(2026, 1, 1, 12, 0, 5, tzinfo=UTC)
+LATEST = datetime(2026, 1, 1, 12, 0, 9, tzinfo=UTC)
+
+
 def test_baseline_reuse_skips_unchanged_file():
-    # Identical files → SAME baseline. Then change the left bytes but keep its
-    # size and mtime; a refresh with the baseline must reuse SAME (no re-read),
-    # while a plain compare would notice the byte difference.
+    # Equal content but differing mtimes → the pair goes through the content
+    # pass and lands on SAME. Then change the left bytes but keep its size and
+    # mtime; a refresh with the baseline must reuse SAME (no re-read), while a
+    # plain compare would notice the byte difference.
     left = make_fs({"a.bin": b"AAAA"})
     right = make_fs({"a.bin": b"AAAA"})
-    options = CompareOptions(content=ContentMode.BYTES, skip_content_if_metadata_matches=False)
+    _rewrite(right, "a.bin", b"AAAA", mtime=LATER)
+    options = CompareOptions(content=ContentMode.BYTES)
     baseline = run_compare(left, right, options)
     assert find(baseline, "a.bin").status is Status.SAME
 
@@ -241,21 +247,40 @@ def test_baseline_reuse_skips_unchanged_file():
 
 def test_baseline_reuse_rechecks_modified_file():
     # A file whose mtime changed since the baseline is compared afresh.
-    later = datetime(2026, 1, 1, 12, 0, 5, tzinfo=UTC)
     left = make_fs({"a.bin": b"AAAA"})
     right = make_fs({"a.bin": b"AAAB"})
-    options = CompareOptions(content=ContentMode.BYTES, skip_content_if_metadata_matches=False)
+    _rewrite(right, "a.bin", b"AAAB", mtime=LATER)
+    options = CompareOptions(content=ContentMode.BYTES)
     baseline = run_compare(left, right, options)
     assert find(baseline, "a.bin").status is Status.DIFFERENT
 
-    _rewrite(left, "a.bin", b"AAAB", mtime=later)  # now equal content
-    _rewrite(right, "a.bin", b"AAAB", mtime=later)
+    _rewrite(left, "a.bin", b"AAAB", mtime=LATEST)  # now equal content, and touched
 
     events = list(compare_folders(left, right, options, baseline=baseline))
     root = events[-1].root
     assert find(root, "a.bin").status is Status.SAME
     # it went through the content pass rather than being reused
     assert any(isinstance(e, ContentChecked) and str(e.path) == "a.bin" for e in events)
+
+
+def test_baseline_is_ignored_when_content_reads_are_forced():
+    """A copy that fixes a content-only difference must not stay DIFFERENT.
+
+    With skip_content_if_metadata_matches off, size+mtime prove nothing, so
+    baseline reuse would report the pre-copy status forever: copying preserves
+    the source mtime, leaving both sides' metadata exactly as the baseline
+    recorded it.
+    """
+    left = make_fs({"a.bin": b"AAAA"})
+    right = make_fs({"a.bin": b"BBBB"})  # same size, same mtime, different bytes
+    options = CompareOptions(content=ContentMode.BYTES, skip_content_if_metadata_matches=False)
+    baseline = run_compare(left, right, options)
+    assert find(baseline, "a.bin").status is Status.DIFFERENT
+
+    _rewrite(right, "a.bin", b"AAAA")  # "copy left → right", mtime preserved
+
+    refreshed = list(compare_folders(left, right, options, baseline=baseline))[-1].root
+    assert find(refreshed, "a.bin").status is Status.SAME
 
 
 def test_baseline_reuse_handles_new_and_removed_files():

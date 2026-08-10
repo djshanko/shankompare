@@ -205,6 +205,9 @@ def compare_folders(
     file pair whose size and mtime on both sides are unchanged from the
     baseline reuses the baseline's status instead of re-reading content — a
     "refresh" that only pays the content cost for files modified since then.
+    It is ignored when ``skip_content_if_metadata_matches`` is off, because
+    that option means the opposite: read every pair's bytes even when its
+    metadata matches (see ``_reuse_baseline``).
     """
     options = options or CompareOptions()
     root = NodeResult("", Status.UNKNOWN, left_fs.stat("."), right_fs.stat("."))
@@ -220,7 +223,7 @@ def compare_folders(
 
     for rel, node in pending_content:
         _check_cancel(cancel)
-        if not _reuse_baseline(node, baseline_index.get(str(rel))):
+        if not _reuse_baseline(node, baseline_index.get(str(rel)), options):
             _compare_content(left_fs, right_fs, rel, node, options)
         yield ContentChecked(rel, node)
 
@@ -246,8 +249,19 @@ def _stat_unchanged(current: EntryInfo | None, previous: EntryInfo | None) -> bo
     return current.size == previous.size and current.mtime == previous.mtime
 
 
-def _reuse_baseline(node: NodeResult, base: NodeResult | None) -> bool:
-    """Adopt the baseline status for an unchanged pair; True if reused."""
+def _reuse_baseline(node: NodeResult, base: NodeResult | None, options: CompareOptions) -> bool:
+    """Adopt the baseline status for an unchanged pair; True if reused.
+
+    "Unchanged" here can only mean size and mtime, so reuse rests on the same
+    assumption as ``skip_content_if_metadata_matches``: that matching metadata
+    means matching bytes. With that option off the user has explicitly refused
+    the assumption, and reuse would contradict it — most visibly after a copy
+    that fixes a pair differing *only* in content, where the copy preserves the
+    source mtime and the refresh would otherwise report the file still
+    different. Re-read instead.
+    """
+    if options.content is not ContentMode.NONE and not options.skip_content_if_metadata_matches:
+        return False
     if base is None or base.error is not None:
         return False
     if base.status not in (Status.SAME, Status.DIFFERENT):
