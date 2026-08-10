@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QSpinBox,
     QSplitter,
@@ -84,6 +85,9 @@ class TextCompareView(QWidget):
         self._only_diff = QCheckBox("Only differences")
         self._only_diff.setShortcut("Ctrl+D")
         self._only_diff.setToolTip("Hide unchanged regions (Ctrl+D)")
+        self._wrap = QCheckBox("Wrap")
+        self._wrap.setShortcut("Ctrl+Shift+W")
+        self._wrap.setToolTip("Wrap long lines to the pane width (Ctrl+Shift+W)")
         self._context = QSpinBox()
         self._context.setRange(0, 100)
         self._context.setValue(3)
@@ -125,6 +129,7 @@ class TextCompareView(QWidget):
         self._edit_check.toggled.connect(self._on_edit_toggled)
         self._ignore_ws.toggled.connect(self._recompute)
         self._only_diff.toggled.connect(self._on_only_diff_toggled)
+        self._wrap.toggled.connect(self._on_wrap_toggled)
         self._context.valueChanged.connect(self._render)
         copy_ltr_btn.clicked.connect(lambda: self._copy_section("ltr"))
         copy_rtl_btn.clicked.connect(lambda: self._copy_section("rtl"))
@@ -157,7 +162,13 @@ class TextCompareView(QWidget):
         titles.addWidget(self._right_info, 1)
 
         controls = QHBoxLayout()
-        for widget in (self._edit_check, self._ignore_ws, self._only_diff, self._context):
+        for widget in (
+            self._edit_check,
+            self._ignore_ws,
+            self._only_diff,
+            self._context,
+            self._wrap,
+        ):
             controls.addWidget(widget)
         controls.addWidget(copy_rtl_btn)
         controls.addWidget(copy_ltr_btn)
@@ -240,6 +251,15 @@ class TextCompareView(QWidget):
     def _on_only_diff_toggled(self, only_diff: bool) -> None:
         self._context.setEnabled(only_diff and not self.edit_mode)
         self._render()
+
+    def _on_wrap_toggled(self, wrap: bool) -> None:
+        """Wrap long lines to the pane width. Off by default: wrapping can push a
+        wrapped line's neighbour out of vertical alignment with the other pane."""
+        mode = (
+            QPlainTextEdit.LineWrapMode.WidgetWidth if wrap else QPlainTextEdit.LineWrapMode.NoWrap
+        )
+        self._left_pane.setLineWrapMode(mode)
+        self._right_pane.setLineWrapMode(mode)
 
     # --- editing ---------------------------------------------------------------
 

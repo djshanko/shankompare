@@ -75,6 +75,13 @@ Small enhancements on top of M4 (not a milestone):
 - **Save session lists the existing sessions** for overwrite (with a confirmation), instead of silently replacing a name collision.
 - **Show filter accepts multiple categories** (checkable menu over the four statuses, with All / Differences-only presets); not-yet-compared rows always stay visible.
 
+## 0.3.5 — QoL patch ✅ (done 2026-08-07)
+
+Small enhancements on top of M4 (not a milestone):
+
+- Folder tab **Select** button, next to Show and carrying the same status options (Unchanged / Modified / Left orphans / Right orphans / All / Differences only); each choice selects the matching files for a batch copy/delete/timestamp operation. Folders are skipped so operations apply to individual files predictably.
+- **Word wrap** in text compare (**Wrap** checkbox, Ctrl+Shift+W); off by default since wrapping can nudge the two panes out of vertical alignment.
+
 ## M5+ — Backlog (future)
 
 Ordered by expected value, not committed:

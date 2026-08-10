@@ -1,5 +1,12 @@
 # shankompare — Release Notes
 
+## 0.3.5 — 2026-08-07
+
+**New features**
+
+- **Select files by status in the folder tab.** A new **Select** button sits next to **Show**, with the same status options — **Unchanged**, **Modified**, **Left orphans**, **Right orphans**, plus **All** and **Differences only**. Choosing one selects every visible file matching that status, ready for a batch copy, delete, or timestamp operation. Where **Show** decides what the tree displays, **Select** decides what is highlighted; folders are skipped so a chosen operation applies to individual files predictably.
+- **Word wrap in text compare.** A new **Wrap** checkbox (Ctrl+Shift+W) wraps long lines to the pane width so you can read them without scrolling sideways. It is off by default, because wrapping a line onto extra rows can push its neighbour out of vertical alignment with the other pane.
+
 ## 0.3.4 — 2026-07-18
 
 **New features**

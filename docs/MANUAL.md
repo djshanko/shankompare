@@ -39,6 +39,7 @@ Filtered-out entries are invisible to the comparison and to sync. A ● on the b
 ## 4. Working with results
 
 - **Show** filters the tree by result category. Click it and tick any combination of **Unchanged**, **Modified**, **Left orphans** and **Right orphans** — the button text summarizes what is showing. Two presets at the bottom of the menu set the common cases: **All** and **Differences only**. A folder stays visible whenever any file inside it matches, and files still being compared always show, so nothing blinks out of the tree mid-scan.
+- **Select** carries the same options as **Show**, but instead of hiding rows it highlights them: pick a status (or **All** / **Differences only**) to select every visible file of that kind, then run a copy, delete, or timestamp operation on the lot. Folders are skipped so the operation applies to individual files predictably.
 - **Refresh** re-scans the sides but only re-reads content for files whose size or modified time changed since the last comparison — much faster than a full **Compare** on large or remote trees. File operations (copy/delete/…) use this same fast refresh when the queue finishes, so only the files they touched are re-checked.
 - **Expand all / Collapse all** open or close every folder in the tree.
 - **Prev/Next diff** jump between differing files.
@@ -63,6 +64,7 @@ Every command shows its full plan — operation counts, the first items, and any
 Side-by-side view with changed lines shaded and the changed characters within them darker. A line-number gutter down each pane shows the real source line numbers (blank on padding rows where one side has no matching line). The bar shows each file's encoding and line-ending style.
 
 - **Only differences** hides unchanged regions (adjustable context).
+- **Wrap** (Ctrl+Shift+W) wraps long lines to the pane width so you can read them without scrolling sideways. Off by default, since a wrapped line takes extra rows and can nudge the two panes out of vertical alignment.
 - **Ignore whitespace** ignores leading/trailing whitespace when matching lines.
 - **Copy section ◀ / ▶** copies the difference under the cursor to the other side.
 - **Edit** makes both panes editable; the comparison re-runs as you type. **Save left/right** writes back preserving the original encoding, BOM, and line endings. **Undo/Redo** (Ctrl+Z / Ctrl+Y) act on the focused pane.
@@ -120,6 +122,7 @@ Every shortcut is also listed under **Help → Keyboard Shortcuts**. View-specif
 | Undo / Redo in the focused pane | Ctrl+Z / Ctrl+Y |
 | Save the focused pane | Ctrl+S |
 | Toggle Edit / Ignore whitespace / Only differences | Ctrl+E / Ctrl+I / Ctrl+D |
+| Toggle Word wrap | Ctrl+Shift+W |
 | Reload both files | F5 |
 
 **Hex compare tab**

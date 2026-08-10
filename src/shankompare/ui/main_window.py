@@ -113,6 +113,7 @@ SHORTCUTS_MARKDOWN = """\
 | Toggle Edit mode | Ctrl+E |
 | Toggle Ignore whitespace | Ctrl+I |
 | Toggle Only differences | Ctrl+D |
+| Toggle Word wrap | Ctrl+Shift+W |
 | Reload both files | F5 |
 
 ## Hex compare tab

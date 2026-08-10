@@ -38,6 +38,7 @@ Tags:
 | Automatically compare subfolders and expand them in place | [v1] |
 | Display filters: show only differences / only added / only modified / all | [v1] |
 | Display filters combine freely (any subset of unchanged / modified / left / right orphans) | [v1.x] |
+| Select all files of a chosen status (same options as the display filter) for batch operations | [v1.x] |
 | Comparison criteria: last modified time (with configurable tolerance, ≥2 s for FAT/SFTP granularity) | [v1] |
 | Correct a skewed SFTP server clock when comparing modified times (opt-in, measured per connection) | [v1.x] |
 | Comparison criteria: size | [v1] |
@@ -66,6 +67,7 @@ Tags:
 | Detect and handle encodings: UTF-8 (± BOM), UTF-16, Latin-1 fallback | [v1] |
 | Handle mixed line endings (LF/CRLF) with an option to ignore EOL differences | [v1] |
 | Option: ignore leading/trailing whitespace | [v1] |
+| Option: word-wrap long lines to the pane width | [v1.x] |
 | Inline editing with dynamic recomparison | [v1.x] |
 | Adaptive gutter buttons for copying sections between sides | [v1.x] |
 | Syntax highlighting | [future] |

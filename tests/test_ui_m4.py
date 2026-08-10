@@ -110,6 +110,64 @@ def test_compare_zip_archive_against_folder(app, tmp_path):
     }
 
 
+def test_folder_view_select_by_status(app, pair_dirs):
+    from shankompare.ui.folder_model import FILTERABLE_STATUSES
+    from shankompare.ui.folder_view import FolderCompareView
+
+    left, right = pair_dirs
+    (left / "same.txt").write_text("x")
+    (right / "same.txt").write_text("x")
+    (left / "diff.txt").write_text("short")
+    (right / "diff.txt").write_text("a much longer body")  # differing size ⇒ DIFFERENT
+    (left / "only_left.txt").write_text("l")
+    (right / "only_right.txt").write_text("r")
+
+    worker = CompareWorker(LocalSide(str(left)), LocalSide(str(right)), CompareOptions())
+    results = []
+    worker.finished.connect(results.append)
+    worker.failed.connect(lambda kind, side, message: pytest.fail(f"{kind}/{side}: {message}"))
+    worker.run()
+
+    view = FolderCompareView()
+    view.set_result(results[0])
+
+    view._select_by_statuses(frozenset({Status.DIFFERENT}))
+    assert [i.node.name for i in view._selected_items()] == ["diff.txt"]
+
+    view._select_by_statuses(FILTERABLE_STATUSES - {Status.SAME})
+    assert sorted(i.node.name for i in view._selected_items()) == [
+        "diff.txt",
+        "only_left.txt",
+        "only_right.txt",
+    ]
+
+    # Unchanged selects only the identical file; a status with no matches clears.
+    view._select_by_statuses(frozenset({Status.SAME}))
+    assert [i.node.name for i in view._selected_items()] == ["same.txt"]
+
+
+def test_text_compare_word_wrap_toggle(app):
+    from PySide6.QtWidgets import QPlainTextEdit
+
+    from shankompare.compare.text import DecodedText
+    from shankompare.ui.text_compare import TextCompareView
+
+    view = TextCompareView("left", "right")
+    view.set_data(
+        DecodedText("a long line here", "utf-8", "LF"),
+        DecodedText("another long line", "utf-8", "LF"),
+    )
+    assert view._left_pane.lineWrapMode() == QPlainTextEdit.LineWrapMode.NoWrap
+
+    view._wrap.setChecked(True)
+    assert view._left_pane.lineWrapMode() == QPlainTextEdit.LineWrapMode.WidgetWidth
+    assert view._right_pane.lineWrapMode() == QPlainTextEdit.LineWrapMode.WidgetWidth
+
+    view._wrap.setChecked(False)
+    assert view._left_pane.lineWrapMode() == QPlainTextEdit.LineWrapMode.NoWrap
+    assert view._right_pane.lineWrapMode() == QPlainTextEdit.LineWrapMode.NoWrap
+
+
 def test_filters_dialog_roundtrip(app):
     from datetime import UTC, datetime
 

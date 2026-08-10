@@ -1,6 +1,13 @@
 """Folder comparison result view: filter toolbar + streaming tree + file ops."""
 
-from PySide6.QtCore import QModelIndex, QPoint, Qt, Signal
+from PySide6.QtCore import (
+    QItemSelection,
+    QItemSelectionModel,
+    QModelIndex,
+    QPoint,
+    Qt,
+    Signal,
+)
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -72,6 +79,26 @@ class FolderCompareView(QWidget):
         # not _on_filter_changed(): the tree it re-expands does not exist yet
         self._filter_btn.setText(_filter_summary(FILTERABLE_STATUSES))
 
+        # Select button: same status options as Show, but each choice selects the
+        # matching file rows (for batch copy/delete) instead of filtering the tree.
+        self._select_btn = QToolButton()
+        self._select_btn.setText("Select")
+        self._select_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._select_btn.setToolTip("Select all files matching a comparison status")
+        select_menu = QMenu(self._select_btn)
+        for label, status in _FILTER_CHOICES:
+            select_menu.addAction(label).triggered.connect(
+                lambda _=False, s=status: self._select_by_statuses(frozenset({s}))
+            )
+        select_menu.addSeparator()
+        select_menu.addAction("All").triggered.connect(
+            lambda _=False: self._select_by_statuses(FILTERABLE_STATUSES)
+        )
+        select_menu.addAction("Differences only").triggered.connect(
+            lambda _=False: self._select_by_statuses(FILTERABLE_STATUSES - {Status.SAME})
+        )
+        self._select_btn.setMenu(select_menu)
+
         self._refresh_btn = QPushButton("Refresh")
         self._refresh_btn.setShortcut("F5")
         self._refresh_btn.setToolTip(
@@ -126,6 +153,7 @@ class FolderCompareView(QWidget):
 
         toolbar = QHBoxLayout()
         toolbar.addWidget(self._filter_btn)
+        toolbar.addWidget(self._select_btn)
         toolbar.addWidget(self._refresh_btn)
         toolbar.addWidget(expand_btn)
         toolbar.addWidget(collapse_btn)
@@ -183,6 +211,45 @@ class FolderCompareView(QWidget):
 
     def _filter_select_differences(self) -> None:
         self._set_filter_statuses(FILTERABLE_STATUSES - {Status.SAME})
+
+    # --- select by status --------------------------------------------------------
+
+    def _select_by_statuses(self, statuses: frozenset[Status]) -> None:
+        """Select every visible file row whose status is in ``statuses``.
+
+        Directories are skipped so batch file operations stay predictable (a
+        differing folder would otherwise be selected alongside its children)."""
+        rows: list[QModelIndex] = []
+        self._flat_visible(QModelIndex(), rows)
+        matches = [index for index in rows if self._row_has_status(index, statuses)]
+        selection_model = self._tree.selectionModel()
+        if not matches:
+            selection_model.clearSelection()
+            return
+        selection = QItemSelection()
+        for index in matches:
+            selection.select(index, index)
+        selection_model.select(
+            selection,
+            QItemSelectionModel.SelectionFlag.ClearAndSelect
+            | QItemSelectionModel.SelectionFlag.Rows,
+        )
+        first = matches[0]
+        self._reveal_ancestors(first)
+        # NoUpdate: move the current index for scrolling without letting the view's
+        # default selection command collapse the multi-row selection to just this row.
+        selection_model.setCurrentIndex(first, QItemSelectionModel.SelectionFlag.NoUpdate)
+        self._tree.scrollTo(first, QTreeView.ScrollHint.PositionAtCenter)
+
+    def _row_has_status(self, index: QModelIndex, statuses: frozenset[Status]) -> bool:
+        item = self._proxy.data(index, FolderCompareModel.NodeRole)
+        return item is not None and not item.node.is_dir and item.node.status in statuses
+
+    def _reveal_ancestors(self, index: QModelIndex) -> None:
+        parent = index.parent()
+        while parent.isValid():
+            self._tree.expand(parent)
+            parent = parent.parent()
 
     def expand_differences(self, parent: QModelIndex = _ROOT_INDEX) -> None:
         for row in range(self._proxy.rowCount(parent)):
