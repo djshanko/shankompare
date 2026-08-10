@@ -20,7 +20,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
-    "ruff>=0.8",
+    # Pinned exactly: a formatter that floats makes "ruff format --check" fail
+    # in CI the day an unrelated release changes its style. Bump deliberately,
+    # running "ruff format ." in the same commit.
+    "ruff==0.16.2",
 ]
 package = [
     "pyinstaller>=6.16",
@@ -43,6 +46,10 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Ruff formats Python snippets inside Markdown from 0.16 on. The docs here are
+# prose — a preserved design record and teaching examples whose layout is
+# deliberate — so they are not the formatter's to rewrite.
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
