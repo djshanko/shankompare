@@ -6,7 +6,6 @@ OS keyring under the ``shankompare`` service, keyed by profile name.
 
 import contextlib
 import dataclasses
-import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -14,6 +13,8 @@ from typing import Any
 import keyring
 import keyring.errors
 from platformdirs import user_config_dir
+
+from .storage import read_json_items, write_json
 
 _SERVICE = "shankompare"
 
@@ -50,6 +51,12 @@ class ConnectionProfile:
         return kwargs
 
 
+def _profile_from_dict(data: dict) -> ConnectionProfile:
+    """Build a profile, ignoring keys a newer version may have written."""
+    known = {f.name for f in dataclasses.fields(ConnectionProfile)}
+    return ConnectionProfile(**{k: v for k, v in data.items() if k in known})
+
+
 class ProfileStore:
     """Loads and saves profiles as JSON in the per-user config directory."""
 
@@ -62,16 +69,10 @@ class ProfileStore:
         return self._path
 
     def load(self) -> list[ConnectionProfile]:
-        if not self._path.exists():
-            return []
-        raw = json.loads(self._path.read_text(encoding="utf-8"))
-        known = {f.name for f in dataclasses.fields(ConnectionProfile)}
-        return [ConnectionProfile(**{k: v for k, v in item.items() if k in known}) for item in raw]
+        return read_json_items(self._path, _profile_from_dict, "profile")
 
     def save(self, profiles: list[ConnectionProfile]) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps([asdict(p) for p in profiles], indent=2, ensure_ascii=False)
-        self._path.write_text(payload, encoding="utf-8")
+        write_json(self._path, [asdict(p) for p in profiles])
 
     @staticmethod
     def get_secret(profile_name: str) -> str | None:

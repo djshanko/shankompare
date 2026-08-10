@@ -1,7 +1,6 @@
 """Saved comparison sessions: two sides plus compare options, as JSON."""
 
 import dataclasses
-import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +8,8 @@ from pathlib import Path
 from platformdirs import user_config_dir
 
 from shankompare.compare import CompareFilters
+
+from .storage import read_json, read_json_items, write_json
 
 SIDE_LOCAL = "local"
 SIDE_SFTP = "sftp"
@@ -86,15 +87,10 @@ class SessionStore:
         self._path = base / "sessions.json"
 
     def load(self) -> list[Session]:
-        if not self._path.exists():
-            return []
-        raw = json.loads(self._path.read_text(encoding="utf-8"))
-        return [_session_from_dict(item) for item in raw]
+        return read_json_items(self._path, _session_from_dict, "session")
 
     def save(self, sessions: list[Session]) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps([asdict(s) for s in sessions], indent=2, ensure_ascii=False)
-        self._path.write_text(payload, encoding="utf-8")
+        write_json(self._path, [asdict(s) for s in sessions])
 
 
 @dataclass
@@ -109,13 +105,22 @@ class SettingsStore:
         self._path = base / "settings.json"
 
     def load(self) -> AppSettings:
-        if not self._path.exists():
+        """Read the settings, keeping only values of the type each field expects.
+
+        A field of the wrong type is worse here than a missing one: ``theme``
+        reaches ``apply_theme`` during startup, where an unhashable value (a
+        JSON list, say) raises before the window exists. An unrecognized theme
+        *name* is fine — the theme code already falls back for those.
+        """
+        raw = read_json(self._path, dict)
+        if raw is None:
             return AppSettings()
-        raw = json.loads(self._path.read_text(encoding="utf-8"))
-        return AppSettings(**_filtered(AppSettings, raw))
+        settings = AppSettings()
+        if isinstance(raw.get("theme"), str):
+            settings.theme = raw["theme"]
+        if isinstance(raw.get("extra"), dict):
+            settings.extra = raw["extra"]
+        return settings
 
     def save(self, settings: AppSettings) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(
-            json.dumps(asdict(settings), indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        write_json(self._path, asdict(settings))
