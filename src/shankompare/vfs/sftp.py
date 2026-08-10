@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
 from stat import S_ISDIR
-from typing import BinaryIO
+from typing import BinaryIO, cast
 from uuid import uuid4
 
 import paramiko
@@ -38,6 +38,39 @@ def _translate() -> Iterator[None]:
         raise VfsConnectionError(str(exc)) from exc
     except OSError as exc:
         raise VfsError(str(exc)) from exc
+
+
+class _TranslatedFile:
+    """A paramiko file handle whose streaming errors surface as ``VfsError``.
+
+    ``_translate`` covers only the ``open`` call; every later read or write
+    goes to the socket on its own, where a dropped connection raises
+    paramiko's exceptions instead. Callers up the stack (the compare engine,
+    the file-operations queue) handle ``VfsError`` and nothing else, so a blip
+    mid-transfer would otherwise abort a whole comparison or operation batch
+    as an "unexpected error" rather than failing just that file.
+    """
+
+    def __init__(self, handle: BinaryIO):
+        self._handle = handle
+
+    def read(self, size: int = -1) -> bytes:
+        with _translate():
+            return self._handle.read(size)
+
+    def write(self, data: bytes) -> int:
+        with _translate():
+            return self._handle.write(data)
+
+    def close(self) -> None:
+        with _translate():
+            self._handle.close()  # flushes buffered writes, so this can fail
+
+    def __enter__(self) -> "_TranslatedFile":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
 
 
 def _apply_offset(timestamp: float | None, offset: timedelta) -> datetime:
@@ -173,11 +206,13 @@ class SftpFileSystem(FileSystem):
 
     def open_read(self, path: PathLike) -> BinaryIO:
         with _translate():
-            return self._sftp.open(self._full(path), "rb")
+            handle = self._sftp.open(self._full(path), "rb")
+        return cast(BinaryIO, _TranslatedFile(handle))
 
     def open_write(self, path: PathLike) -> BinaryIO:
         with _translate():
-            return self._sftp.open(self._full(path), "wb")
+            handle = self._sftp.open(self._full(path), "wb")
+        return cast(BinaryIO, _TranslatedFile(handle))
 
     def mkdir(self, path: PathLike) -> None:
         with _translate():
