@@ -30,6 +30,16 @@ def _mtime(timestamp: float) -> datetime:
     return datetime.fromtimestamp(timestamp, tz=UTC)
 
 
+def _within_root(root: Path, candidate: Path) -> bool:
+    """Whether ``candidate`` stays inside ``root``, judged lexically.
+
+    Purely textual (``normpath``, no ``resolve``) so a symlink *inside* the
+    root still resolves through to its target as the user expects; the point
+    here is only to catch a relative path that climbs out.
+    """
+    return Path(os.path.normpath(candidate)).is_relative_to(Path(os.path.normpath(root)))
+
+
 class LocalFileSystem(FileSystem):
     def __init__(self, root: str | Path):
         self._root = Path(root)
@@ -37,7 +47,18 @@ class LocalFileSystem(FileSystem):
             raise VfsNotFound(f"root directory does not exist: {root}")
 
     def _full(self, path: PathLike) -> Path:
-        return self._root / normalize(path)
+        """Resolve a root-relative path, refusing anything that escapes the root.
+
+        ``normalize`` rejects POSIX ``..`` traversal, but names reaching this
+        backend can come from an SFTP server or an archive member, where a
+        backslash or a drive letter is an ordinary character. Windows reads
+        both as path syntax, so ``root / "..\\..\\x"`` — one legal POSIX
+        filename — would otherwise land outside the root on a copy.
+        """
+        full = self._root / normalize(path)
+        if not _within_root(self._root, full):
+            raise VfsError(f"path escapes the filesystem root: {path}")
+        return full
 
     def listdir(self, path: PathLike = ".") -> list[EntryInfo]:
         entries: list[EntryInfo] = []
