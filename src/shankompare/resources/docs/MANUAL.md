@@ -1,6 +1,6 @@
 # shankompare — User Manual
 
-shankompare compares folders and files side by side — between local disks, SFTP servers, and archive files — and lets you copy, delete, edit, and synchronize the differences. This manual covers version 0.3.4.
+shankompare compares folders and files side by side — between local disks, SFTP servers, and archive files — and lets you copy, delete, edit, and synchronize the differences. This manual covers version 0.3.6.
 
 ## 1. Getting started
 
@@ -40,7 +40,7 @@ Filtered-out entries are invisible to the comparison and to sync. A ● on the b
 
 - **Show** filters the tree by result category. Click it and tick any combination of **Unchanged**, **Modified**, **Left orphans** and **Right orphans** — the button text summarizes what is showing. Two presets at the bottom of the menu set the common cases: **All** and **Differences only**. A folder stays visible whenever any file inside it matches, and files still being compared always show, so nothing blinks out of the tree mid-scan.
 - **Select** carries the same options as **Show**, but instead of hiding rows it highlights them: pick a status (or **All** / **Differences only**) to select every visible file of that kind, then run a copy, delete, or timestamp operation on the lot. Folders are skipped so the operation applies to individual files predictably.
-- **Refresh** re-scans the sides but only re-reads content for files whose size or modified time changed since the last comparison — much faster than a full **Compare** on large or remote trees. File operations (copy/delete/…) use this same fast refresh when the queue finishes, so only the files they touched are re-checked.
+- **Refresh** re-scans the sides but only re-reads content for files whose size or modified time changed since the last comparison — much faster than a full **Compare** on large or remote trees. File operations (copy/delete/…) use this same fast refresh when the queue finishes, so only the files they touched are re-checked. With **Skip content if size+time match** unchecked, Refresh re-reads every pair instead: that setting means size and modified time prove nothing, which is exactly what the shortcut would rely on.
 - **Expand all / Collapse all** open or close every folder in the tree.
 - **Prev/Next diff** jump between differing files.
 - **Double-click** a file pair to open it in a compare tab — text or hex is chosen automatically. Right-click → *Compare as text* / *Compare as hex* to force one.

@@ -82,6 +82,18 @@ Small enhancements on top of M4 (not a milestone):
 - Folder tab **Select** button, next to Show and carrying the same status options (Unchanged / Modified / Left orphans / Right orphans / All / Differences only); each choice selects the matching files for a batch copy/delete/timestamp operation. Folders are skipped so operations apply to individual files predictably.
 - **Word wrap** in text compare (**Wrap** checkbox, Ctrl+Shift+W); off by default since wrapping can nudge the two panes out of vertical alignment.
 
+## 0.3.6 — Correctness patch ✅ (done 2026-08-10)
+
+No new features; the outcome of a full code and repository review:
+
+- Refresh no longer reuses a previous verdict when the user has asked for content to be read on every pair — a copy that fixed a content-only difference could otherwise stay marked *different* indefinitely.
+- SFTP errors *during* a transfer are translated like errors when opening a file, so one dropped connection costs one file instead of the whole comparison or operation batch.
+- A remote or archive entry whose name carries Windows path syntax can no longer be written outside the destination root.
+- Config files survive corruption and interrupted saves (set aside as `.bad`, defaults loaded, atomic writes) rather than blocking startup.
+- One dialog per failed comparison; hex compare enforces its size limit before transferring; a zeroed zip timestamp no longer fails the archive.
+- Icons and the in-app manual/release notes ship inside the package, so an ordinary `pip install` finds them.
+- CI runs format, lint and the test suite on Windows *and* Ubuntu on every push.
+
 ## M5+ — Backlog (future)
 
 Ordered by expected value, not committed:

@@ -5,10 +5,14 @@ description: Checklist for cutting a new shankompare version — version bump lo
 
 # Cutting a release
 
-## Version bump (two places, keep in sync)
+## Version bump (four places, keep in sync)
 
 1. `pyproject.toml` → `[project] version`
 2. `src/shankompare/__init__.py` → `__version__`
+3. `README.md` → the `### Current (vX.Y.Z)` heading — and check the feature list under it still matches what ships
+4. `src/shankompare/resources/docs/MANUAL.md` → the "This manual covers version X.Y.Z" line
+
+Grep for the *outgoing* version before committing; 3 and 4 are the ones that silently drift.
 
 Semver-ish: milestones bump the minor version (M4 → 0.3.0).
 

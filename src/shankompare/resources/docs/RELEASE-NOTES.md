@@ -1,5 +1,21 @@
 # shankompare — Release Notes
 
+## 0.3.6 — 2026-08-10
+
+A correctness and robustness release from a full code review: no new features, but several ways the app could mislead you, lose work, or refuse to start are gone.
+
+**Fixed**
+
+- **A file fixed by a copy could stay marked *different* forever.** With **Skip content if size+time match** unchecked, the automatic refresh after a file operation trusted size and modified time to decide what had changed — but copying preserves the source timestamp, so a pair that differed *only* in content looked untouched afterwards and kept its old verdict. That refresh now re-reads the content, which is what unchecking the option asks for in the first place. See the note in §4 of the manual: in that mode Refresh is a full re-read, and slower on large or remote trees.
+- **A dropped SFTP connection no longer sinks a whole comparison or operation batch.** Errors during a transfer (as opposed to when opening the file) escaped as an unexpected internal error, abandoning everything queued behind them. They are now reported per file: the comparison marks that row and carries on, and a copy batch records the failure and continues with the rest.
+- **Files from a remote server or archive can no longer be written outside the compared folder.** An entry whose *name* contained Windows path syntax — backslashes, or a drive letter — could escape the destination root when copied to a local side. Such a name is now refused.
+- **A damaged settings or sessions file no longer stops the app from starting.** A config file truncated by a crash (or hand-edited into invalid JSON) raised before the main window existed, leaving no way in. Unreadable files are now set aside as `<name>.bad` and the app starts with defaults; a single malformed session or profile is skipped without costing the others. Saves are also written atomically, so an interrupted one leaves the previous version intact instead of a half-written file.
+- **A failed login reported itself twice.** Cancelling the password re-prompt after an authentication failure raised a second dialog repeating the same message.
+- **Hex compare rejects an oversized file before transferring it**, instead of downloading up to the (much larger) text limit first and refusing afterwards; the message now names the limit that actually applied.
+- **A zip entry with a zeroed timestamp no longer fails the whole archive** — such entries show as dated at the epoch.
+
+**Note:** if you run shankompare from a normal `pip install` rather than a source checkout or the packaged executable, **Help → User Manual** and the window icon now work; they were missing from the installed package.
+
 ## 0.3.5 — 2026-08-07
 
 **New features**
