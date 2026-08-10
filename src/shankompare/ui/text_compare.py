@@ -476,11 +476,13 @@ class TextCompareView(QWidget):
         for block in self._blocks:
             if block.kind is BlockKind.EQUAL:
                 continue
-            left_bg = colors[BlockKind.REPLACE if block.kind is BlockKind.REPLACE else block.kind]
+            # One color per block: a DELETE block spans lines on the left only
+            # and an INSERT one on the right only, so both loops can share it.
+            background = colors[block.kind]
             for line in range(block.left_start, block.left_end):
-                left_selections.append(line_selection(self._left_pane, line, left_bg))
+                left_selections.append(line_selection(self._left_pane, line, background))
             for line in range(block.right_start, block.right_end):
-                right_selections.append(line_selection(self._right_pane, line, left_bg))
+                right_selections.append(line_selection(self._right_pane, line, background))
             if block.kind is BlockKind.REPLACE:
                 pairs = min(block.left_end - block.left_start, block.right_end - block.right_start)
                 for k in range(pairs):

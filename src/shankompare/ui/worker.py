@@ -268,13 +268,16 @@ class DiffLoadWorker(QObject):
 
     def run(self) -> None:
         try:
+            limit = MAX_HEX_COMPARE_BYTES if self._mode == "hex" else MAX_TEXT_COMPARE_BYTES
             with open_side(self._left) as left_fs, open_side(self._right) as right_fs:
-                left = self._read(left_fs)
-                right = self._read(right_fs)
+                left = self._read(left_fs, limit)
+                right = self._read(right_fs, limit)
             mode = self._mode
             if mode == "auto":
                 mode = "hex" if _looks_binary(left) or _looks_binary(right) else "text"
             if mode == "hex":
+                # "auto" reached hex without knowing it would: the file was read
+                # under the larger text limit, so it still needs checking here.
                 if max(len(left), len(right)) > MAX_HEX_COMPARE_BYTES:
                     self.failed.emit(
                         f"{self._rel_path}: hex compare is limited to "
@@ -290,17 +293,18 @@ class DiffLoadWorker(QObject):
             log.exception("diff load worker crashed")
             self.failed.emit("Unexpected error; see the log output for details.")
 
-    def _read(self, fs: FileSystem) -> bytes:
+    def _read(self, fs: FileSystem, limit: int) -> bytes:
+        """Read the file, refusing anything past ``limit`` before transferring it."""
         try:
             info = fs.stat(self._rel_path)
         except VfsNotFound:
             if self._missing_ok:
                 return b""
             raise
-        if info.size > MAX_TEXT_COMPARE_BYTES:
+        if info.size > limit:
+            kind = "hex compare" if limit == MAX_HEX_COMPARE_BYTES else "file compare"
             raise VfsError(
-                f"{self._rel_path} is {info.size:,} bytes; "
-                f"file compare is limited to {MAX_TEXT_COMPARE_BYTES:,} bytes"
+                f"{self._rel_path} is {info.size:,} bytes; {kind} is limited to {limit:,} bytes"
             )
         with fs.open_read(self._rel_path) as f:
             return f.read()

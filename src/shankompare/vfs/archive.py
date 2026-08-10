@@ -26,6 +26,18 @@ def is_archive_name(name: str) -> bool:
     return name.lower().endswith(ARCHIVE_SUFFIXES)
 
 
+def _zip_mtime(info: zipfile.ZipInfo) -> datetime:
+    """A zip entry's timestamp. Zip times carry no zone, so assume UTC.
+
+    Some writers leave the field zeroed, which is not a valid date at all
+    (month 0); such an entry gets the epoch rather than failing the archive.
+    """
+    try:
+        return datetime(*info.date_time, tzinfo=UTC)
+    except ValueError:
+        return _EPOCH
+
+
 @dataclass
 class _Member:
     is_dir: bool
@@ -57,8 +69,9 @@ class ArchiveFileSystem(FileSystem):
     def _index_zip(self) -> None:
         assert self._zip is not None
         for info in self._zip.infolist():
-            mtime = datetime(*info.date_time, tzinfo=UTC)  # zip times lack a zone; assume UTC
-            self._register(info.filename, info.is_dir(), info.file_size, mtime, info.filename)
+            self._register(
+                info.filename, info.is_dir(), info.file_size, _zip_mtime(info), info.filename
+            )
 
     def _index_tar(self) -> None:
         assert self._tar is not None

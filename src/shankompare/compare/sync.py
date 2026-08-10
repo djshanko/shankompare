@@ -32,7 +32,9 @@ class SyncPlan:
             OpKind.DELETE_LEFT: "delete on left",
             OpKind.DELETE_RIGHT: "delete on right",
         }
-        parts = [f"{count} × {labels[kind]}" for kind, count in counts.items()]
+        # plans only produce the four kinds above; fall back rather than raise
+        # if a future planner emits another, since this only builds a summary
+        parts = [f"{count} × {labels.get(kind, kind.value)}" for kind, count in counts.items()]
         return ", ".join(parts) if parts else "nothing to do"
 
 

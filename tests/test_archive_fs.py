@@ -127,3 +127,23 @@ def test_two_archives_compare_like_folders():
     assert statuses["top.txt"] is Status.SAME
     assert statuses["docs/readme.md"] is Status.DIFFERENT
     assert statuses["docs/deep/leaf.bin"] is Status.SAME
+
+
+def test_zero_date_entry_falls_back_to_the_epoch():
+    """Some zip writers zero the timestamp field, which is not a valid date.
+
+    One such entry must not take the whole archive down with a ValueError.
+    """
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        info = zipfile.ZipInfo("undated.txt")
+        info.date_time = (1980, 0, 0, 0, 0, 0)  # month 0 / day 0: unrepresentable
+        zf.writestr(info, b"payload")
+        zf.writestr(zipfile.ZipInfo("dated.txt", date_time=(2026, 7, 14, 12, 0, 0)), b"payload")
+
+    fs = ArchiveFileSystem(buf.getvalue(), "odd.zip")
+    entries = {e.name: e for e in fs.listdir()}
+    assert entries["undated.txt"].mtime == datetime.fromtimestamp(0, tz=UTC)
+    assert entries["dated.txt"].mtime == datetime(2026, 7, 14, 12, 0, 0, tzinfo=UTC)
+    with fs.open_read("undated.txt") as f:
+        assert f.read() == b"payload"

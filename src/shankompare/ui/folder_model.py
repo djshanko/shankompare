@@ -79,6 +79,10 @@ class FolderCompareModel(QAbstractItemModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._root: _Item | None = None
+        # Keyed by id() so a streamed NodeResult can be matched without making
+        # NodeResult hashable. Safe only because the model holds the tree root
+        # (via _root.node) for as long as the map lives: no node is collected,
+        # so no id is ever reused. clear()/set_result() replace both together.
         self._by_node: dict[int, _Item] = {}
 
     # --- streaming updates (queued from the worker thread) --------------------
