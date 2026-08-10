@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QTextBrowser, QVBoxLayout
 
 
@@ -27,6 +28,8 @@ class HelpDialog(QDialog):
                 browser.document().setMarkdown(markdown_path.read_text(encoding="utf-8"))
             except OSError as exc:
                 browser.setPlainText(f"Could not load {markdown_path.name}: {exc}")
+
+        browser.moveCursor(QTextCursor.MoveOperation.Start)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
