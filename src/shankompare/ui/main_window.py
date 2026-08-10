@@ -711,9 +711,12 @@ class MainWindow(QMainWindow):
         return answer == QMessageBox.StandardButton.Yes
 
     def _on_compare_failed(self, kind: str, side: str, message: str) -> None:
-        if kind == "auth" and self._retry_auth(side, message):
-            return
-        if kind == "connection":
+        if kind == "auth":
+            # _retry_auth has already reported the failure either way, so this
+            # path must not raise a second dialog saying the same thing.
+            if self._retry_auth(side, message):
+                return
+        elif kind == "connection":
             answer = QMessageBox.question(
                 self,
                 "Connection failed",
