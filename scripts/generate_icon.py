@@ -1,10 +1,11 @@
 """Generates the shankompare application icon: a PNG set plus a multi-
-resolution .ico, written to assets/icons/. Pure PySide6 (already a project
-dependency) — no Pillow or other image library needed, including for the
-.ico packing (PNG-in-ICO, a plain binary container assembled by hand).
+resolution .ico, written to the package's bundled icons directory. Pure
+PySide6 (already a project dependency) — no Pillow or other image library
+needed, including for the .ico packing (PNG-in-ICO, a plain binary container
+assembled by hand).
 
 Re-run after changing the design in this file:
-    python assets/generate_icon.py
+    python scripts/generate_icon.py
 """
 
 import os
@@ -17,7 +18,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QBuffer, QIODevice, QRectF, Qt
 from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPainterPath, QPen
 
-OUT_DIR = Path(__file__).parent / "icons"
+OUT_DIR = Path(__file__).resolve().parents[1] / "src" / "shankompare" / "resources" / "icons"
 SIZES = (16, 24, 32, 48, 64, 128, 256)
 
 LEFT_COLOR = QColor("#1565c0")  # matches the app's left-only status color

@@ -4,12 +4,14 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from pathlib import Path
+
 import pytest
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication
 
 from shankompare.ui.app import _ICON_SIZES, _load_app_icon
-from shankompare.ui.resources import icon_path
+from shankompare.ui.resources import doc_path, icon_path
 
 
 @pytest.fixture(scope="module")
@@ -42,8 +44,12 @@ def test_load_app_icon_has_all_sizes(app):
     assert sizes == set(_ICON_SIZES)
 
 
-def test_resources_fall_back_to_source_tree_when_not_frozen():
-    # not running under PyInstaller in tests, so this must resolve to assets/icons/
-    path = icon_path("shankompare.ico")
-    assert path.parent.name == "icons"
-    assert path.parent.parent.name == "assets"
+def test_resources_resolve_inside_the_package_when_not_frozen():
+    # Not frozen in tests, so this must land in the package's own resources
+    # directory — the layout that makes an installed wheel work too.
+    import shankompare
+
+    package_root = Path(shankompare.__file__).resolve().parent
+    for path in (icon_path("shankompare.ico"), doc_path("MANUAL.md")):
+        assert path.exists(), path
+        assert path.is_relative_to(package_root / "resources"), path

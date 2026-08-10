@@ -16,8 +16,8 @@ Semver-ish: milestones bump the minor version (M4 → 0.3.0).
 
 The Help menu renders these files directly (`main_window.py` → `_show_doc`):
 
-- `docs/RELEASE-NOTES.md` — add a section for the new version at the top, matching the existing format. Every user-visible change goes here.
-- `docs/MANUAL.md` — update for any new/changed feature or behavior.
+- `src/shankompare/resources/docs/RELEASE-NOTES.md` — add a section for the new version at the top, matching the existing format. Every user-visible change goes here.
+- `src/shankompare/resources/docs/MANUAL.md` — update for any new/changed feature or behavior.
 
 ## Project docs
 

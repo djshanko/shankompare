@@ -9,10 +9,11 @@ a = Analysis(
     ["launcher.py"],
     pathex=["../src"],
     binaries=[],
+    # Mirror the in-package layout so resources.py finds these under _MEIPASS
+    # by the same relative path it uses everywhere else.
     datas=[
-        ("../assets/icons", "assets/icons"),
-        ("../docs/MANUAL.md", "docs"),
-        ("../docs/RELEASE-NOTES.md", "docs"),
+        ("../src/shankompare/resources/icons", "shankompare/resources/icons"),
+        ("../src/shankompare/resources/docs", "shankompare/resources/docs"),
     ],
     hiddenimports=["keyring.backends.Windows", "keyring.backends.SecretService"],
     excludes=["tkinter"],
@@ -28,5 +29,5 @@ exe = EXE(
     name="shankompare",
     console=False,
     upx=False,
-    icon="../assets/icons/shankompare.ico",
+    icon="../src/shankompare/resources/icons/shankompare.ico",
 )

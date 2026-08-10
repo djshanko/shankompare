@@ -32,6 +32,11 @@ shankompare = "shankompare.__main__:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# Icons and the in-app manual/release notes ship with the package, so an
+# ordinary (non-editable) install can still find them at runtime.
+[tool.setuptools.package-data]
+shankompare = ["resources/icons/*", "resources/docs/*.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

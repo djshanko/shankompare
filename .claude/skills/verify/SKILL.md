@@ -36,4 +36,4 @@ Exercise the changed flow manually (or describe to the user what to click). Thre
 
 ## After a feature lands
 
-Update docs in the same session: `docs/REQUIREMENTS.md` tags, `docs/ROADMAP.md` checkmarks, and `docs/MANUAL.md` / `docs/RELEASE-NOTES.md` if user-visible (these two are shown in-app via Help menu).
+Update docs in the same session: `docs/REQUIREMENTS.md` tags, `docs/ROADMAP.md` checkmarks, and `src/shankompare/resources/docs/MANUAL.md` / `RELEASE-NOTES.md` if user-visible (these two are shown in-app via Help menu).
